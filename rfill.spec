@@ -12,6 +12,7 @@ a = Analysis(
         'openpyxl',
         'openpyxl.cell._writer',
         'xlsxwriter',
+        'xlrd',
         'pandas',
     ],
     hookspath=[],
