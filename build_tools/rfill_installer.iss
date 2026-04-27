@@ -1,6 +1,7 @@
 ; Script Inno Setup — Rfill v1.0.0
 
 [Setup]
+SourceDir=..
 AppName=Rfill
 AppVersion=1.0.0
 AppPublisher=Jules FAGUET
