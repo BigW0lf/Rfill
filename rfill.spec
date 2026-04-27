@@ -10,6 +10,7 @@ a = Analysis(
     ],
     hiddenimports=[
         'openpyxl',
+        'openpyxl.cell._writer',
         'xlsxwriter',
         'pandas',
     ],
@@ -25,24 +26,17 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='Rfill',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,          # pas de fenêtre console
-    icon='Rfill.ico',
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
     upx_exclude=[],
-    name='Rfill',
+    runtime_tmpdir=None,
+    console=False,
+    icon='Rfill.ico',
 )

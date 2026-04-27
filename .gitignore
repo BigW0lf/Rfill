@@ -41,3 +41,4 @@ Rfill.ico
 .DS_Store
 Thumbs.db
 desktop.ini
+build_env/
