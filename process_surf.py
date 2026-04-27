@@ -2,11 +2,35 @@ import ast
 import os
 import pprint
 import shutil
+import sys
 import tempfile
 import importlib
+import importlib.util
 
 import pandas as pd
 import glossary_surf
+
+
+def _glossary_path():
+    """Chemin du fichier glossary_surf.py — adapté au mode frozen (exe PyInstaller)."""
+    if getattr(sys, 'frozen', False):
+        # En mode exe : dossier à côté de Rfill.exe
+        return os.path.join(os.path.dirname(sys.executable), "glossary_surf.py")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "glossary_surf.py")
+
+
+def _reload_glossary():
+    """Recharge le module glossary_surf depuis le fichier sur disque."""
+    global glossary_surf
+    if getattr(sys, 'frozen', False):
+        path = _glossary_path()
+        spec = importlib.util.spec_from_file_location("glossary_surf", path)
+        mod  = importlib.util.module_from_spec(spec)
+        sys.modules["glossary_surf"] = mod
+        spec.loader.exec_module(mod)
+        glossary_surf = mod
+    else:
+        importlib.reload(glossary_surf)
 
 # =========================================================
 #  LOGIQUE METIER
@@ -395,7 +419,7 @@ def update_glossary(mapping_df, type_su):
     ast.parse(content)
 
     # Écriture atomique : temp → rename (évite la corruption si interruption)
-    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "glossary_surf.py")
+    file_path = _glossary_path()
     fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=os.path.dirname(file_path))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -406,5 +430,5 @@ def update_glossary(mapping_df, type_su):
             os.unlink(tmp_path)
         raise
 
-    importlib.reload(glossary_surf)
+    _reload_glossary()
     return True

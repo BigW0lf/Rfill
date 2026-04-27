@@ -20,6 +20,10 @@ ENV/
 *.xlsx
 ~$*
 
+# Build PyInstaller
+Rfill.ico
+*.spec.bak
+
 # Dossiers outils
 .claude/
 .pytest_cache/
