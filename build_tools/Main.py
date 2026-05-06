@@ -19,7 +19,7 @@ APP_DATE    = "27 avril 2026"
 APP_AUTHOR  = "Jules FAGUET"
 APP_DESC    = (
     "Importation et catégorisation de surfaces AutoCAD/GeoGex,\n"
-    "génération de tableaux Excel normés (SUB, SU, SHO, SPD…)."
+    "génération de tableaux Excel normés (SUB, SU, SHO, SDP…)."
 )
 APP_COPY    = "© 2026 Rfill — Tous droits réservés"
 
@@ -944,7 +944,7 @@ class SurfaceApp(tk.Tk):
                 "SUBL Surfaces Utiles Brutes Locatives\n"
                 "SUN  Surfaces Utiles Nettes\n"
                 "SHO  Surfaces Hors Œuvre\n"
-                "SPD  Surfaces De Plancher\n"
+                "SDP  Surfaces De Plancher\n"
                 "GLA  Surfaces Globales\n"
                 "TAX  Synthèse des Surfaces Réelles (Art. 324 M ou Z Annexe III CGI)\n"
                 "TSB  Tableau Surfaces Brutes")

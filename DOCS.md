@@ -10,7 +10,7 @@ Module de données pures. Toutes les valeurs sont des constantes de référence 
 | `denom_surf` | `dict[str, str]` | Code surface → clé de glossaire. Ex. `'SUB' → 'surfaces_utilisables'`. |
 | `real_su_name` | `dict[str, str]` | Code surface → libellé complet pour les en-têtes. Ex. `'SU' → 'SURFACES UTILES (SU*)'`. |
 | `superficie_names` | `dict[str, list[str]]` | Code surface → noms des super-catégories par défaut. |
-| `predefined_cats` | `dict[str, list[str]]` | Code surface → catégories pré-saisies (SHO, SUBL, SUN, TAX, SPD). |
+| `predefined_cats` | `dict[str, list[str]]` | Code surface → catégories pré-saisies (SHO, SUBL, SUN, TAX, SDP). |
 | `nota_surf` | `dict[str, list[str]]` | Code surface → notes réglementaires affichées en bas des tableaux. |
 
 ---

@@ -55,7 +55,7 @@ Correspondances codes → ressources
 
 .. data:: glossary_surf.predefined_cats
 
-   Catégories pré-saisies pour certains types (SHO, SUBL, SUN, TAX, SPD).
+   Catégories pré-saisies pour certains types (SHO, SUBL, SUN, TAX, SDP).
    Affichées dans le board Glossaire même si aucune donnée ne les contient.
 
 Notes réglementaires
@@ -64,4 +64,4 @@ Notes réglementaires
 .. data:: glossary_surf.nota_surf
 
    Notes légales et définitions affichées en bas des tableaux Excel et HTML,
-   par code de surface (SPD, SU, TAX, SUB, SUN, SUBL, SHO).
+   par code de surface (SDP, SU, TAX, SUB, SUN, SUBL, SHO).

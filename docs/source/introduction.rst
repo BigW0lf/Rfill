@@ -26,7 +26,7 @@ Normes gérées
      - Surfaces Utiles Nettes
    * - **SHO**
      - Surfaces Hors Œuvre
-   * - **SPD**
+   * - **SDP**
      - Surfaces De Plancher
    * - **GLA**
      - Surfaces Globales

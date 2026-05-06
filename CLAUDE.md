@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Desktop tool (Tkinter GUI) that imports building surface data from AutoCAD (.xls) and GeoGex (.xlsx) Excel exports, lets the user categorize surface types via drag-and-drop, then generates formatted Excel surface area reports. Targets French real estate professionals (standards: SUB, SU, SHO, SPD, GLA, TAX).
+Desktop tool (Tkinter GUI) that imports building surface data from AutoCAD (.xls) and GeoGex (.xlsx) Excel exports, lets the user categorize surface types via drag-and-drop, then generates formatted Excel surface area reports. Targets French real estate professionals (standards: SUB, SU, SHO, SDP, GLA, TAX).
 
 ## How to Run
 
@@ -46,7 +46,7 @@ Three modules with clear separation:
 
 ## Key Concepts
 
-- **Surface type codes**: SUB (Brut), SU (Net), SUBL (Louable), SUN (Non-louable), SHO (Hors-Œuvre), SPD (De Plancher), GLA, TAX, TSB. The active glossary depends on which code is being processed.
+- **Surface type codes**: SUB (Brut), SU (Net), SUBL (Louable), SUN (Non-louable), SHO (Hors-Œuvre), SDP (De Plancher), GLA, TAX, TSB. The active glossary depends on which code is being processed.
 - **Category mapping**: stored as a DataFrame (`mapping_df`) with columns `[Affectation, cat]`. The Glossaire tab edits this mapping before export. Unclassified rows get `cat = "autres"`.
 - **Super-categories** (`super_cats`): per-type ordered dict `{super_cat_name: [categories]}` grouping columns in the output pivot. Editable in the GUI (rename on double-click, drag across columns, right-click to reassign).
 - **Frozen-mode paths**: `process_surf._glossary_path()` and `_img_dir()` handle PyInstaller's `sys.frozen` + `sys._MEIPASS` so `glossary_surf.py` stays writable next to the exe and `img/` assets are found at runtime.

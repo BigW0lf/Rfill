@@ -43,7 +43,7 @@ glossary_surf = {'surfaces_utilisables': {'bureaux / plateaux': ['bureau',
          'circulations générales bâtiment': ['dégagements', 'circulations', 'entrée', 'hall'],
          'enveloppe / extérieur': ['terrasses', 'balcons', 'loggias', 'toitures-terrasses'],
          'vide / structure': ['vides techniques', 'trémies']},
- 'spd': {'surfaces principales de bâtiment (brut réglementaire)': ['sdp avant déduction',
+ 'sdp': {'surfaces principales de bâtiment (brut réglementaire)': ['sdp avant déduction',
                                                                    'surface de plancher',
                                                                    'surface brute de plancher'],
          'espaces de bureaux (base administrative)': ['bureaux',
@@ -72,22 +72,21 @@ denom_surf = {'SUB': 'surfaces_utilisables',
  'TAX': 'surfaces_utilisables',
  'TSB': 'surfaces_utilisables',
  'SHO': 'sho',
- 'SPD': 'spd',
+ 'SDP': 'sdp',
  'GLA': 'surfaces_utilisables'}
 
 real_su_name = {'SUB': 'SURFACES UTILES BRUTES (SUB*)',
  'SU': 'SURFACES UTILES (SU*)',
  'SUBL': 'SURFACES UTILES BRUTES LOCATIVES (SUBL*)',
  'SUN': 'SURFACES UTILES NETTES (SUN*)',
- 'SDP': 'SURFACES DE PLANCHERS (SDP*)',
+ 'SDP': 'SURFACES DE PLANCHER (SDP*)',
  'SHO': 'SURFACES HORS OEUVRE (SHO*)',
  'GLA': 'SURFACES GLOBALES (GLA*)',
  'TAX': 'SYNTHESE DES SURFACES RÉELLES* (Art. 324 M ou Z Annexe III du CGI)',
- 'SPD': 'SURFACES DE PLANCHERS (SPD*)',
  'TSB': 'TABLEAU SURFACES BRUTES (TSB*)'}
 
 superficie_names = {
-    'SPD': ['(1)', '(2)', '(3)', '(4)', '(5)', '(6)', '(7)', '(8)', '(9)', '(10)'],
+    'SDP': ['(1)', '(2)', '(3)', '(4)', '(5)', '(6)', '(7)', '(8)', '(9)', '(10)'],
     'SU':  ['Superficies utiles', 'Superficies annexes'],
     'TAX': ['Superficies réelles'],
     'SUB': ['Superficies utiles brutes privatives',
@@ -159,7 +158,7 @@ predefined_cats = {
         'Parkings / Rampes',
         'Terrasses / Balcons / Courette',
     ],
-    'SPD': [
+    'SDP': [
         'Planchers avant déductions',
         'Vides Gaines Techniques',
         'Surfaces avec h < 1.80 m',
@@ -173,7 +172,7 @@ predefined_cats = {
 }
 
 nota_surf = {
-    'SPD': [
+    'SDP': [
         "*SDP suivant Art. R. 111-22 du code de l'urbanisme",
         "(1) Somme des surfaces de planchers de chaque niveau clos et couvert, calculées à partir du nu intérieur des murs, sans prendre en compte l'épaisseur des murs entourant les embrasures des portes et fenêtres donnant sur l'extérieur.",
         "(2) Vides et trémies afférentes aux ascenseurs et escaliers.",
