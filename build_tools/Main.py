@@ -364,8 +364,6 @@ class SurfaceApp(tk.Tk):
             w.destroy()
         self.columns = {}
 
-        color_idx = 0
-
         for sc_name, sc_cats in sc_dict.items():
             sc_hdr = tk.Frame(self.board, bg=self._SC_HDR_BG, pady=5)
             sc_hdr.pack(fill="x", padx=4, pady=(10, 0))
@@ -390,8 +388,7 @@ class SurfaceApp(tk.Tk):
                          bg=self._SC_BODY_BG).pack(side="left", padx=20, pady=8)
 
             for cat in all_sc_cats:
-                color = self._COL_COLORS[color_idx % len(self._COL_COLORS)]
-                color_idx += 1
+                color = self._COL_COLORS[sum(ord(c) for c in cat) % len(self._COL_COLORS)]
 
                 col = tk.Frame(sc_body, bd=1, relief="solid", bg=color, padx=8, pady=8)
                 col.pack(side="left", anchor="n", padx=6, pady=6)
