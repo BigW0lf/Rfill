@@ -14,14 +14,7 @@ import glossary_surf
 
 
 def _glossary_path():
-    """Retourne le chemin absolu de ``glossary_surf.py``.
-
-    En mode exe PyInstaller, le fichier est situé à côté de l'exécutable
-    (modifiable par l'utilisateur) ; en mode script, à côté de ce module.
-
-    Returns:
-        str: Chemin absolu vers ``glossary_surf.py``.
-    """
+    """Chemin du fichier glossary_surf.py — adapté au mode frozen (exe PyInstaller)."""
     if getattr(sys, 'frozen', False):
         # En mode exe : dossier à côté de Rfill.exe
         return os.path.join(os.path.dirname(sys.executable), "glossary_surf.py")
@@ -29,12 +22,7 @@ def _glossary_path():
 
 
 def _reload_glossary():
-    """Recharge le module ``glossary_surf`` depuis le fichier sur disque.
-
-    En mode *frozen* (PyInstaller), utilise :func:`importlib.util.spec_from_file_location`
-    pour charger depuis le chemin absolu renvoyé par :func:`_glossary_path`.
-    En mode script, délègue à :func:`importlib.reload`.
-    """
+    """Recharge le module glossary_surf depuis le fichier sur disque."""
     global glossary_surf
     if getattr(sys, 'frozen', False):
         path = _glossary_path()
@@ -51,23 +39,6 @@ def _reload_glossary():
 # =========================================================
 
 def extract_info(file_path):
-    """Lit un fichier Excel AutoCAD/GeoGex et retourne un DataFrame normalisé.
-
-    Filtre les lignes dont la colonne 0 est un entier (numéro de séquence AutoCAD)
-    et dérive ``type_su`` depuis le premier mot de la colonne ``Calque``
-    (ex. ``"SUB Contours"`` → ``"SUB"``).
-
-    Args:
-        file_path (str): Chemin vers le fichier ``.xls`` ou ``.xlsx``.
-
-    Returns:
-        pandas.DataFrame: Colonnes : ``num_piece``, ``Descriptif``, ``Calque``,
-        ``N``, ``Affectation``, ``Occupant``, ``Aire``, ``Etage``, ``Chambre``,
-        ``Lot``, ``Accessibilité aux publics``, ``type_su``.
-
-    Raises:
-        ValueError: Si le fichier ne contient aucune ligne de données valides.
-    """
     df = pd.read_excel(file_path, header=None)
 
     # Les lignes de données ont un entier en colonne 0 (numéro de séquence AutoCAD)
@@ -84,19 +55,6 @@ def extract_info(file_path):
 
 
 def tab_cd_type(df):
-    """Agrège le DataFrame brut par type de surface, puis par *(Etage, Affectation, Occupant)*.
-
-    Pour chaque valeur unique de ``type_su``, les surfaces sont sommées par groupe.
-    Les valeurs manquantes de ``Occupant`` sont remplacées par ``""`` ;
-    ``Aire`` est converti en numérique (valeurs non parsables → 0).
-
-    Args:
-        df (pandas.DataFrame): DataFrame produit par :func:`extract_info`.
-
-    Returns:
-        list[pandas.DataFrame]: Un DataFrame par type de surface, chacun avec les
-        colonnes ``Etage``, ``Affectation``, ``Occupant``, ``Aire``, ``type_su``.
-    """
     df_type = []
     type_unique = df.type_su.dropna().unique()
 
@@ -112,21 +70,9 @@ def tab_cd_type(df):
 
 
 def build_affectation_mapping(df_t, type_su):
-    """Construit un mapping ``Affectation → catégorie`` par lookup exact dans le glossaire.
-
-    La résolution passe par :data:`glossary_surf.denom_surf` pour trouver le
-    glossaire applicable, puis effectue une comparaison normalisée (minuscules,
-    espaces supprimés) entre chaque affectation et les mots-clés du glossaire.
-    Les affectations sans correspondance reçoivent la catégorie ``"autres"``.
-
-    Args:
-        df_t (pandas.DataFrame): Données pour un type de surface unique,
-            avec au moins la colonne ``Affectation``.
-        type_su (str): Code de surface (ex. ``"SUB"``, ``"SHO"``).
-
-    Returns:
-        pandas.DataFrame: Colonnes ``['Affectation', 'cat']``,
-        une ligne par affectation unique présente dans *df_t*.
+    """
+    Construit un mapping Affectation → Catégorie basé sur le glossaire,
+    mais uniquement pour les affectations présentes dans df_t.
     """
     type_su_glo = glossary_surf.denom_surf.get(type_su)
     if not type_su_glo or type_su_glo not in glossary_surf.glossary_surf:
@@ -150,21 +96,9 @@ def build_affectation_mapping(df_t, type_su):
 
 
 def TCD2Tab(df_t, type_su, mapping_df=None):
-    """Fusionne les surfaces avec leur mapping de catégories et agrège par *(Etage, Occupant, cat)*.
-
-    Args:
-        df_t (pandas.DataFrame): DataFrame d'un type de surface unique,
-            colonnes ``['Etage', 'Affectation', 'Occupant', 'Aire', 'type_su']``.
-        type_su (str): Code de surface (ex. ``"SU"``).
-        mapping_df (pandas.DataFrame, optional): Table ``['Affectation', 'cat']``
-            issue de l'interface utilisateur. Si ``None``, calculée
-            automatiquement via :func:`build_affectation_mapping`.
-
-    Returns:
-        tuple[pandas.DataFrame, pandas.DataFrame]:
-            - **df_tcd** — pivot agrégé, colonnes
-              ``['Etage', 'Occupant', 'cat', 'Aire', 'type_su']``.
-            - **mapping_df** — mapping effectivement utilisé (utile si calculé automatiquement).
+    """
+    df_t : DataFrame avec colonnes ['Etage', 'Affectation', 'Aire', 'type_su']
+    mapping_df : DataFrame ['Affectation', 'cat'] modifié via l'interface.
     """
     if mapping_df is None:
         mapping_df = build_affectation_mapping(df_t, type_su)
@@ -184,33 +118,9 @@ def TCD2Tab(df_t, type_su, mapping_df=None):
 
 
 def Tab_output(df_tcd, infos, super_cat_map=None):
-    """Transforme *df_tcd* en tableaux finaux prêts à l'export.
-
-    Pour chaque type de surface, construit un tableau croisé
-    *(Etage [× Occupant]) × catégorie* avec :
-
-    * colonnes de sous-total par sur-catégorie si *super_cat_map* est fourni ;
-    * lignes de sous-total par étage (multi-occupants uniquement) ;
-    * ligne ``TOTAL`` globale en bas.
-
-    Args:
-        df_tcd (pandas.DataFrame): Sortie de :func:`TCD2Tab`, colonnes
-            ``['Etage', 'Occupant', 'cat', 'Aire', 'type_su']``.
-        infos (dict): Métadonnées projet — clés attendues : ``batiment``,
-            ``adresse``, ``proprio``, ``cadastre``, ``date``, ``dossier``,
-            ``mesurage``.
-        super_cat_map (dict, optional): ``{type_su: {sc_name: [categories]}}``.
-            Définit l'ordre des colonnes et les sous-totaux par sur-catégorie.
-
-    Returns:
-        dict: ``{type_su: {"info": list[str], "data": DataFrame,
-        "sc_spans": dict, "nota": list[str]}}``.
-
-        * ``info`` — lignes d'en-tête projet à écrire avant le tableau.
-        * ``data`` — tableau final incluant les lignes de total.
-        * ``sc_spans`` — ``{sc_name: (col_start, col_end)}`` pour la mise en
-          forme Excel des sur-catégories.
-        * ``nota`` — notes réglementaires issues de :data:`glossary_surf.nota_surf`.
+    """
+    Transforme df_tcd (Etage, Occupant, cat, Aire, type_su)
+    en tableau Excel final avec en-tête projet + pivot par catégorie.
     """
     output_tables = {}
     type_su_list = pd.unique(df_tcd["type_su"].values)
@@ -318,21 +228,9 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
 
 
 def export_tables_to_excel(output_tables, output_path):
-    """Écrit le classeur Excel multi-feuilles (une feuille par type de surface).
-
-    Mise en forme appliquée :
-
-    * En-tête projet en italique (9 pt).
-    * En-têtes sur-catégories : bleu acier ``#B0C4DE``, fusionnées.
-    * En-têtes colonnes : bleu clair ``#DDEEFF``, retour à la ligne automatique.
-    * Colonnes sous-total : vert pâle ``#E8F0E8``.
-    * Lignes total étage : ``#DCE6F1`` (gras, fusionné Etage + Occupant).
-    * Grand total : ``#B8CCE4`` (gras, fusionné).
-    * Notes réglementaires en bas, fusionnées sur toute la largeur.
-
-    Args:
-        output_tables (dict): Sortie de :func:`Tab_output`.
-        output_path (str): Chemin du fichier ``.xlsx`` à créer.
+    """
+    output_tables : dict {type_su: {"info": [...], "data": DataFrame}}
+    output_path : chemin du fichier .xlsx à créer
     """
 
     with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
@@ -513,21 +411,10 @@ def export_tables_to_excel(output_tables, output_path):
 
 
 def update_glossary(mapping_df, type_su):
-    """Persiste les nouvelles affectations classifiées dans ``glossary_surf.py``.
-
-    Seules les affectations dont ``cat != "autres"`` et absentes du glossaire
-    existant sont ajoutées. L'écriture est **atomique** : fichier temporaire
-    → :func:`shutil.move` pour éviter toute corruption en cas d'interruption.
-    La syntaxe est validée par :func:`ast.parse` avant l'écriture.
-    Le module est rechargé via :func:`_reload_glossary` après modification.
-
-    Args:
-        mapping_df (pandas.DataFrame): Table ``['Affectation', 'cat']``
-            issue de l'interface utilisateur.
-        type_su (str): Code de surface (ex. ``"SU"``).
-
-    Returns:
-        bool: ``True`` si le fichier a été modifié, ``False`` sinon.
+    """
+    Ajoute dans glossary_surf.py les affectations classifiées (hors 'autres')
+    qui n'y figurent pas encore, puis recharge le module.
+    Retourne True si le fichier a été modifié.
     """
     type_su_glo = glossary_surf.denom_surf.get(type_su)
     if not type_su_glo:
@@ -591,14 +478,7 @@ def update_glossary(mapping_df, type_su):
 # =========================================================
 
 def _img_dir():
-    """Retourne le chemin du dossier ``img/`` adapté au mode d'exécution.
-
-    En mode *frozen* PyInstaller (onefile), cherche d'abord dans ``sys._MEIPASS``
-    (dossier d'extraction temporaire), puis à côté de l'exécutable.
-
-    Returns:
-        str: Chemin absolu vers le dossier ``img/``.
-    """
+    """Dossier des images — adapté au mode frozen (PyInstaller onefile)."""
     if getattr(sys, "frozen", False):
         # 1) dossier extraction PyInstaller (onefile), 2) à côté de l'exe
         base = getattr(sys, "_MEIPASS", None) or os.path.dirname(sys.executable)
@@ -608,15 +488,7 @@ def _img_dir():
 
 
 def _img_to_base64(filename):
-    """Encode une image du dossier ``img/`` en data URI base64.
-
-    Args:
-        filename (str): Nom du fichier image (ex. ``"logo_ge.jpg"``).
-
-    Returns:
-        str: Data URI ``data:image/<mime>;base64,...``, ou ``""`` si le fichier
-        est absent.
-    """
+    """Encode une image du dossier img/ en data URI base64. Retourne '' si absente."""
     path = os.path.join(_img_dir(), filename)
     if not os.path.isfile(path):
         return ""
@@ -628,17 +500,6 @@ def _img_to_base64(filename):
 
 
 def _fmt_num(v):
-    """Formate une valeur numérique pour l'affichage HTML.
-
-    Séparateur des milliers : espace insécable ; séparateur décimal : virgule.
-
-    Args:
-        v: Valeur à formater (numérique, chaîne ou ``None``).
-
-    Returns:
-        str: Chaîne formatée (ex. ``"1 234,56"``), chaîne échappée si non
-        numérique, ou ``""`` si *v* est ``None`` ou vide.
-    """
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -647,25 +508,10 @@ def _fmt_num(v):
 
 
 def export_tables_to_html(output_tables, infos, html_path):
-    """Génère un rapport HTML auto-contenu, imprimable A4 paysage.
-
-    Produit un fichier ``.html`` unique (logos et tampon encodés en base64,
-    aucune dépendance externe) avec :
-
-    * Une ``<section class="page">`` par type de surface.
-    * En-tête : logos gauche · infos projet centrées · date/dossier droite.
-    * Navigation par onglets JavaScript (masquée à l'impression via
-      ``@media print``).
-    * Pied de page : nota intro + notes réglementaires + tampon.
-    * CSS ``@page { size: A4 landscape; }`` pour l'impression directe.
-
-    Args:
-        output_tables (dict): Sortie de :func:`Tab_output`.
-        infos (dict): Métadonnées projet — clés : ``batiment``, ``adresse``,
-            ``proprio``, ``cadastre``, ``date``, ``dossier``, ``mesurage``.
-            Le champ ``mesurage`` remplit la phrase
-            *"superficies calculées après mesurage en …"*.
-        html_path (str): Chemin du fichier ``.html`` à créer.
+    """
+    Génère un rapport HTML imprimable A4 paysage, une page par type de surface.
+    output_tables : sortie de Tab_output()
+    infos : dict (batiment, adresse, proprio, cadastre, date, dossier, mesurage)
     """
     logo_ge     = _img_to_base64("logo_ge.jpg")
     logo_rtaxes = _img_to_base64("logo_rtaxes.jpg")

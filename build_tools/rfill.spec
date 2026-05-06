@@ -1,12 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
+ROOT  = os.path.abspath(os.path.join(SPECPATH, '..'))
+CONDA = r'C:\Users\JulesFAGUET\anaconda3\envs\venv'
 
 a = Analysis(
-    ['Main.py'],
-    pathex=[],
-    binaries=[],
+    [os.path.join(ROOT, 'Main.py')],
+    pathex=[ROOT],
+    binaries=[
+        (os.path.join(CONDA, 'DLLs',           '_ctypes.pyd'),       '.'),
+        (os.path.join(CONDA, 'DLLs',           '_tkinter.pyd'),      '.'),
+        (os.path.join(CONDA, 'Library', 'bin', 'ffi.dll'),           '.'),
+        (os.path.join(CONDA, 'Library', 'bin', 'tcl86t.dll'),        '.'),
+        (os.path.join(CONDA, 'Library', 'bin', 'tk86t.dll'),         '.'),
+        (os.path.join(CONDA,                   'python313.dll'),      '.'),
+        (os.path.join(CONDA, 'Library', 'bin', 'vcruntime140.dll'),  '.'),
+    ],
     datas=[
-        ('glossary_surf.py', '.'),
-        ('Rfill.png', '.'),
+        (os.path.join(ROOT, 'glossary_surf.py'),                      '.'),
+        (os.path.join(ROOT, 'Rfill.png'),                             '.'),
+        (os.path.join(ROOT, 'img'),                                   'img'),
+        (os.path.join(CONDA, 'Library', 'lib', 'tcl8.6'),            'tcl/tcl8.6'),
+        (os.path.join(CONDA, 'Library', 'lib', 'tk8.6'),             'tcl/tk8.6'),
     ],
     hiddenimports=[
         'openpyxl',
@@ -39,5 +54,5 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon='Rfill.ico',
+    icon=os.path.join(ROOT, 'Rfill.ico'),
 )

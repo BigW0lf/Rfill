@@ -1,5 +1,3 @@
-"""Données de référence pour Rfill : glossaires de catégorisation, codes de surface, libellés et notes réglementaires."""
-
 glossary_surf = {'surfaces_utilisables': {'bureaux / plateaux': ['bureau',
                                                  'open space',
                                                  'plateau bureaux',

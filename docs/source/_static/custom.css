@@ -1,0 +1,22 @@
+/* ── Rfill doc — surcharges légères du thème Furo ── */
+
+/* En-têtes de section plus marqués */
+.rst-content h2, article h2 {
+    border-bottom: 2px solid var(--color-brand-primary);
+    padding-bottom: 4px;
+}
+
+/* Signature de fonction : police légèrement plus grande */
+dt.sig {
+    font-size: 0.97em;
+}
+
+/* Badges de type de retour */
+.sig-return-typehint {
+    color: var(--color-brand-content);
+}
+
+/* Table autodoc : colonnes bien séparées */
+table.docutils td, table.docutils th {
+    padding: 6px 12px;
+}

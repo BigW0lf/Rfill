@@ -26,7 +26,6 @@ APP_COPY    = "© 2026 Rfill — Tous droits réservés"
 
 class SurfaceApp(tk.Tk):
     def __init__(self):
-        """Initialise la fenêtre principale, les styles ttk et les 5 onglets."""
         super().__init__()
 
         self.title(APP_TITLE)
@@ -75,7 +74,6 @@ class SurfaceApp(tk.Tk):
     # ------------------------------------------------------------------ styles
 
     def _setup_styles(self):
-        """Configure le thème clam et les styles ttk (polices, couleurs)."""
         s = ttk.Style(self)
         s.theme_use("clam")
         s.configure("TNotebook",           background="#f0f0f0")
@@ -90,16 +88,13 @@ class SurfaceApp(tk.Tk):
     # ------------------------------------------------------------------ helpers
 
     def _ts(self):
-        """Retourne l'heure courante formatée HH:MM:SS pour les entrées de journal."""
         return datetime.now().strftime("%H:%M:%S")
 
     def _log(self, widget, msg, tag="info"):
-        """Insère [HH:MM:SS] msg dans le widget Text avec le tag de couleur donné."""
         widget.insert("end", f"[{self._ts()}]  {msg}\n", tag)
         widget.see("end")
 
     def _log_sep(self, widget, label=""):
-        """Insère un séparateur visuel (tirets) dans le journal, avec label optionnel."""
         line = f"{'─' * 60}"
         if label:
             line = f"── {label} {'─' * max(0, 57 - len(label))}"
@@ -109,7 +104,6 @@ class SurfaceApp(tk.Tk):
     # ================================================================ IMPORT
 
     def build_import_tab(self):
-        """Construit l'onglet Import : boutons de chargement et console de journal."""
         frame = ttk.Frame(self.tab_import, padding=20)
         frame.pack(fill="both", expand=True)
 
@@ -168,7 +162,6 @@ class SurfaceApp(tk.Tk):
         self._log(self.text_import, f"Session démarrée — {datetime.now().strftime('%d/%m/%Y %H:%M')}", "sep")
 
     def load_files(self, source):
-        """Ouvre le sélecteur de fichiers, parse chaque fichier et accumule les données dans all_df."""
         if source == "autocad":
             filetypes = [("Fichiers AutoCAD XLS", "*.xls"), ("Tous les Excel", "*.xls *.xlsx")]
             title     = "Choisir fichiers AutoCAD (XLS)"
@@ -233,7 +226,6 @@ class SurfaceApp(tk.Tk):
                   f"[OK]   {len(dfs)} fichier(s) intégré(s)  ·  Types : {types_detectes}", "ok")
 
     def clear_data(self):
-        """Efface toutes les données de session après confirmation utilisateur."""
         if not messagebox.askyesno("Confirmation", "Effacer toutes les données chargées ?"):
             return
         self.all_df = None
@@ -249,7 +241,6 @@ class SurfaceApp(tk.Tk):
     # =============================================================== GLOSSAIRE
 
     def build_glossaire_tab(self):
-        """Construit l'onglet Glossaire : combobox, boutons, canvas scrollable et board."""
         frame = ttk.Frame(self.tab_glossaire, padding=20)
         frame.pack(fill="both", expand=True)
 
@@ -302,11 +293,9 @@ class SurfaceApp(tk.Tk):
         self.canvas.bind("<Configure>", self._on_canvas_resize)
 
     def _on_canvas_resize(self, event):
-        """Adapte la largeur du board à la largeur courante du canvas."""
         self.canvas.itemconfig(self._board_win, width=event.width)
 
     def _on_tab_changed(self, event=None):
-        """Affiche un message d'invite dans le board Glossaire si aucune donnée n'est chargée."""
         selected = self.notebook.index(self.notebook.select())
         if selected == 1 and not self.mappings:
             for w in self.board.winfo_children():
@@ -320,7 +309,6 @@ class SurfaceApp(tk.Tk):
     _DEFAULT_SUPER_CATS = ["Superficies utiles", "Superficies communes", "Superficies annexes"]
 
     def update_glossaire_tab(self):
-        """Recalcule mappings et super_cats depuis df_types, met à jour la combobox de types."""
         if not self.df_types:
             return
 
@@ -366,7 +354,6 @@ class SurfaceApp(tk.Tk):
     _SC_BODY_BG = "#f5f5f5"
 
     def load_glossaire_board(self, event=None):
-        """Reconstruit entièrement le board des catégories pour le type de surface sélectionné."""
         type_su = self.combo_type.get()
         if not type_su or type_su not in self.mappings:
             return
@@ -452,7 +439,6 @@ class SurfaceApp(tk.Tk):
                 self._make_aff_widget(col, aff, "autres")
 
     def _make_aff_widget(self, parent, aff, cat):
-        """Crée un label blanc draggable représentant une affectation dans sa colonne de catégorie."""
         lbl = tk.Label(
             parent, text=aff, bg="white", relief="raised",
             padx=5, pady=3, font=("Arial", 9), anchor="w",
@@ -466,7 +452,6 @@ class SurfaceApp(tk.Tk):
     # ----------------------------------------- sur-catégories (clic droit)
 
     def show_supercat_menu(self, event, cat, current_sc):
-        """Affiche le menu contextuel pour déplacer cat vers une autre sur-catégorie."""
         type_su = self.combo_type.get()
         menu = tk.Menu(self, tearoff=0)
         for sc in self.super_cats.get(type_su, {}):
@@ -478,7 +463,6 @@ class SurfaceApp(tk.Tk):
         menu.tk_popup(event.x_root, event.y_root)
 
     def move_cat_to_supercat(self, cat, from_sc, to_sc):
-        """Déplace cat de from_sc vers to_sc dans super_cats et rafraîchit le board."""
         type_su = self.combo_type.get()
         sc_dict = self.super_cats[type_su]
         if cat in sc_dict.get(from_sc, []):
@@ -490,7 +474,6 @@ class SurfaceApp(tk.Tk):
     # ---------------------------------------------------- renommage catégorie
 
     def rename_category(self, old_name):
-        """Renomme une catégorie via dialog et met à jour mappings, empty_categories, super_cats."""
         type_su = self.combo_type.get()
         if not type_su:
             return
@@ -525,7 +508,6 @@ class SurfaceApp(tk.Tk):
     # ------------------------------------------------------------ drag & drop
 
     def start_drag(self, event, aff, cat):
-        """Démarre le drag d'une affectation : mémorise l'origine et crée le label fantôme orange."""
         self.drag_item       = aff
         self.drag_origin_cat = cat
         self.drag_label      = tk.Label(
@@ -538,7 +520,6 @@ class SurfaceApp(tk.Tk):
         )
 
     def do_drag(self, event):
-        """Met à jour la position du label fantôme lors du déplacement."""
         if self.drag_label:
             self.drag_label.place(
                 x=event.x_root - self.winfo_rootx() - 50,
@@ -546,7 +527,6 @@ class SurfaceApp(tk.Tk):
             )
 
     def stop_drag(self, event):
-        """Dépose l'affectation dans la catégorie cible et met à jour le mapping."""
         if not self.drag_label:
             return
 
@@ -578,7 +558,6 @@ class SurfaceApp(tk.Tk):
     # ---------------------------------------------------- boutons glossaire
 
     def add_category(self):
-        """Crée une catégorie vide via dialog et l'ajoute à la première sur-catégorie."""
         type_su = self.combo_type.get()
         if not type_su:
             messagebox.showwarning("Attention", "Sélectionnez d'abord un type de surface.")
@@ -601,7 +580,6 @@ class SurfaceApp(tk.Tk):
         self.load_glossaire_board()
 
     def delete_category(self, cat):
-        """Supprime une catégorie après confirmation et reporte ses affectations vers 'autres'."""
         type_su    = self.combo_type.get()
         if not type_su:
             return
@@ -622,7 +600,6 @@ class SurfaceApp(tk.Tk):
         self.load_glossaire_board()
 
     def save_glossaire(self):
-        """Persiste les nouvelles affectations classifiées dans glossary_surf.py via update_glossary."""
         type_su = self.combo_type.get()
         if not type_su:
             return
@@ -636,7 +613,6 @@ class SurfaceApp(tk.Tk):
     # ------------------------------------------------ renommage superficie (super-cat)
 
     def rename_supercat(self, old_sc, type_su):
-        """Renomme une sur-catégorie en reconstruisant super_cats avec la nouvelle clé à la même position."""
         new_sc = simpledialog.askstring(
             "Renommer la superficie",
             f"Nouveau nom pour « {old_sc} » :",
@@ -657,7 +633,6 @@ class SurfaceApp(tk.Tk):
     # ----------------------------------------- drag & drop réordonnancement catégories
 
     def _cat_drag_start(self, event, cat, sc):
-        """Initialise le contexte de drag pour réordonner une colonne de catégorie."""
         self._cat_drag = {
             "cat": cat, "sc": sc,
             "start_x": event.x_root, "start_y": event.y_root,
@@ -665,7 +640,6 @@ class SurfaceApp(tk.Tk):
         }
 
     def _cat_drag_do(self, event):
-        """Active le mode drag catégorie après 6 px de mouvement et déplace le fantôme."""
         if not self._cat_drag:
             return
         dx = abs(event.x_root - self._cat_drag["start_x"])
@@ -684,7 +658,6 @@ class SurfaceApp(tk.Tk):
             )
 
     def _cat_drag_stop(self, event):
-        """Insère la catégorie source avant la cible dans super_cats et rafraîchit le board."""
         if not self._cat_drag or not self._cat_drag.get("active"):
             self._cat_drag = None
             return
@@ -732,7 +705,6 @@ class SurfaceApp(tk.Tk):
     # =============================================================== GÉNÉRER
 
     def build_generer_tab(self):
-        """Construit l'onglet Générer : formulaire projet, bouton d'export, console."""
         frame = ttk.Frame(self.tab_generer, padding=20)
         frame.pack(fill="both", expand=True)
 
@@ -815,7 +787,6 @@ class SurfaceApp(tk.Tk):
         self.text_generer.tag_config("sep",  foreground="#4b5263")
 
     def generate_final_tables(self):
-        """Sauvegarde les glossaires, calcule les tableaux et exporte le fichier Excel + HTML."""
         if not self.mappings:
             messagebox.showwarning("Attention", "Chargez d'abord des fichiers XLS.")
             return
@@ -899,7 +870,6 @@ class SurfaceApp(tk.Tk):
     # =============================================================== AIDE
 
     def build_aide_tab(self):
-        """Construit l'onglet Aide : guide d'utilisation scrollable avec sections structurées."""
         outer = ttk.Frame(self.tab_aide)
         outer.pack(fill="both", expand=True)
 
@@ -984,7 +954,6 @@ class SurfaceApp(tk.Tk):
     # =============================================================== À PROPOS
 
     def build_apropos_tab(self):
-        """Construit l'onglet À propos : carte centrée avec version, auteur et copyright."""
         BG = "#f7f9fc"
 
         canvas = tk.Canvas(self.tab_apropos, bg=BG, highlightthickness=0)
