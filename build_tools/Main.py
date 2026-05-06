@@ -57,6 +57,7 @@ class SurfaceApp(tk.Tk):
         self.super_cats       = {}
         self.saved_glossaries = set()
         self.columns          = {}
+        self.cat_colors       = {}   # {type_su: {cat_name: color}}
 
         self.drag_item       = None
         self.drag_label      = None
@@ -364,6 +365,8 @@ class SurfaceApp(tk.Tk):
             w.destroy()
         self.columns = {}
 
+        color_idx = 0
+
         for sc_name, sc_cats in sc_dict.items():
             sc_hdr = tk.Frame(self.board, bg=self._SC_HDR_BG, pady=5)
             sc_hdr.pack(fill="x", padx=4, pady=(10, 0))
@@ -388,7 +391,15 @@ class SurfaceApp(tk.Tk):
                          bg=self._SC_BODY_BG).pack(side="left", padx=20, pady=8)
 
             for cat in all_sc_cats:
-                color = self._COL_COLORS[sum(ord(c) for c in cat) % len(self._COL_COLORS)]
+                colors = self.cat_colors.setdefault(type_su, {})
+                if cat not in colors:
+                    used = set(colors.values())
+                    color = next(
+                        c for c in self._COL_COLORS * 2
+                        if c not in used
+                    ) if len(used) < len(self._COL_COLORS) else self._COL_COLORS[len(colors) % len(self._COL_COLORS)]
+                    colors[cat] = color
+                color = colors[cat]
 
                 col = tk.Frame(sc_body, bd=1, relief="solid", bg=color, padx=8, pady=8)
                 col.pack(side="left", anchor="n", padx=6, pady=6)
@@ -500,6 +511,10 @@ class SurfaceApp(tk.Tk):
             if old_name in sc_cats:
                 sc_cats[sc_cats.index(old_name)] = new_name
 
+        colors = self.cat_colors.get(type_su, {})
+        if old_name in colors:
+            colors[new_name] = colors.pop(old_name)
+
         self.load_glossaire_board()
 
     # ------------------------------------------------------------ drag & drop
@@ -594,6 +609,7 @@ class SurfaceApp(tk.Tk):
         for sc_cats in self.super_cats.get(type_su, {}).values():
             if cat in sc_cats:
                 sc_cats.remove(cat)
+        self.cat_colors.get(type_su, {}).pop(cat, None)
         self.load_glossaire_board()
 
     def save_glossaire(self):
