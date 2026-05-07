@@ -512,19 +512,23 @@ def export_tables_to_excel(output_tables, output_path):
                     worksheet.set_row(r, nb_lines * 12 + 4)
 
 
-def update_glossary(mapping_df, type_su):
-    """Persiste les nouvelles affectations classifiées dans ``glossary_surf.py``.
+def update_glossary(mapping_df, type_su, super_cats_for_type=None):
+    """Persiste les affectations classifiées et la structure des catégories dans ``glossary_surf.py``.
 
-    Seules les affectations dont ``cat != "autres"`` et absentes du glossaire
-    existant sont ajoutées. L'écriture est **atomique** : fichier temporaire
-    → :func:`shutil.move` pour éviter toute corruption en cas d'interruption.
-    La syntaxe est validée par :func:`ast.parse` avant l'écriture.
-    Le module est rechargé via :func:`_reload_glossary` après modification.
+    Ajoute les affectations dont ``cat != "autres"`` si absentes du glossaire existant.
+    Si ``super_cats_for_type`` est fourni, met à jour également ``superficie_names`` et
+    ``predefined_cats`` pour persister la structure des super-catégories et catégories.
+    L'écriture est **atomique** : fichier temporaire → :func:`shutil.move` pour éviter
+    toute corruption en cas d'interruption. La syntaxe est validée par :func:`ast.parse`
+    avant l'écriture. Le module est rechargé via :func:`_reload_glossary` après modification.
 
     Args:
         mapping_df (pandas.DataFrame): Table ``['Affectation', 'cat']``
             issue de l'interface utilisateur.
         type_su (str): Code de surface (ex. ``"SU"``).
+        super_cats_for_type (dict, optional): Structure ``{super_cat_name: [cat_name, ...]}``
+            contenant les super-catégories et leurs catégories associées. Si fourni,
+            met à jour ``superficie_names[type_su]`` et ``predefined_cats[type_su]``.
 
     Returns:
         bool: ``True`` si le fichier a été modifié, ``False`` sinon.
@@ -546,6 +550,18 @@ def update_glossary(mapping_df, type_su):
         existing_lower = [k.lower() for k in type_glossary[cat]]
         if aff.lower() not in existing_lower:
             type_glossary[cat].append(aff.lower())
+            modified = True
+
+    if super_cats_for_type:
+        new_sc_names = list(super_cats_for_type.keys())
+        new_cats = [c for cats in super_cats_for_type.values() for c in cats]
+
+        if glossary_surf.superficie_names.get(type_su) != new_sc_names:
+            glossary_surf.superficie_names[type_su] = new_sc_names
+            modified = True
+
+        if glossary_surf.predefined_cats.get(type_su) != new_cats:
+            glossary_surf.predefined_cats[type_su] = new_cats
             modified = True
 
     if not modified:

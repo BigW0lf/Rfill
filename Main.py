@@ -636,14 +636,14 @@ class SurfaceApp(tk.Tk):
         self.load_glossaire_board()
 
     def save_glossaire(self):
-        """Persiste les nouvelles affectations classifiées dans glossary_surf.py via update_glossary."""
+        """Persiste les affectations et la structure des catégories dans glossary_surf.py."""
         type_su = self.combo_type.get()
         if not type_su:
             return
         mapping_df = self.mappings[type_su]
-        updated    = update_glossary(mapping_df, type_su)
+        updated    = update_glossary(mapping_df, type_su, self.super_cats.get(type_su, {}))
         self.saved_glossaries.add(type_su)
-        msg = (f"Glossaire mis à jour pour {type_su} — nouvelles affectations ajoutées."
+        msg = (f"Glossaire mis à jour pour {type_su} — catégories et affectations sauvegardées."
                if updated else f"Glossaire sauvegardé pour {type_su} (aucune nouveauté).")
         messagebox.showinfo("OK", msg)
 
@@ -838,7 +838,7 @@ class SurfaceApp(tk.Tk):
         if unsaved:
             for t in unsaved:
                 try:
-                    update_glossary(self.mappings[t], t)
+                    update_glossary(self.mappings[t], t, self.super_cats.get(t, {}))
                     self.saved_glossaries.add(t)
                 except Exception as e:
                     self._log(self.text_generer,
