@@ -1,8 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT  = os.path.abspath(os.path.join(SPECPATH, '..'))
 CONDA = r'C:\Users\JulesFAGUET\anaconda3\envs\venv'
+
+# Collecter openpyxl entièrement (sous-modules + datas)
+openpyxl_datas, openpyxl_binaries, openpyxl_hiddenimports = collect_all('openpyxl')
 
 a = Analysis(
     [os.path.join(ROOT, 'Main.py')],
@@ -15,21 +19,20 @@ a = Analysis(
         (os.path.join(CONDA, 'Library', 'bin', 'tk86t.dll'),         '.'),
         (os.path.join(CONDA,                   'python313.dll'),      '.'),
         (os.path.join(CONDA, 'Library', 'bin', 'vcruntime140.dll'),  '.'),
-    ],
+    ] + openpyxl_binaries,
     datas=[
         (os.path.join(ROOT, 'glossary_surf.py'),                      '.'),
+        (os.path.join(ROOT, 'Rfill.ico'),                             '.'),
         (os.path.join(ROOT, 'Rfill.png'),                             '.'),
         (os.path.join(ROOT, 'img'),                                   'img'),
         (os.path.join(CONDA, 'Library', 'lib', 'tcl8.6'),            'tcl/tcl8.6'),
         (os.path.join(CONDA, 'Library', 'lib', 'tk8.6'),             'tcl/tk8.6'),
-    ],
+    ] + openpyxl_datas,
     hiddenimports=[
-        'openpyxl',
-        'openpyxl.cell._writer',
         'xlsxwriter',
         'xlrd',
         'pandas',
-    ],
+    ] + openpyxl_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

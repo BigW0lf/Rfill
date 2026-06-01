@@ -3,7 +3,7 @@
 [Setup]
 SourceDir=..
 AppName=Rfill
-AppVersion=1.0.0
+AppVersion=1.2.9
 AppPublisher=Jules FAGUET
 AppPublisherURL=https://github.com/BigW0lf/Rfill
 AppSupportURL=https://github.com/BigW0lf/Rfill/issues
@@ -18,7 +18,7 @@ DefaultGroupName=Rfill
 AllowNoIcons=yes
 
 OutputDir=installer
-OutputBaseFilename=Rfill_Setup_1.0.0
+OutputBaseFilename=Rfill_Setup_1.2.9
 SetupIconFile=Rfill.ico
 UninstallDisplayIcon={app}\Rfill.exe
 

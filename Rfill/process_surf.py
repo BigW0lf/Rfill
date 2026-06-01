@@ -12,6 +12,75 @@ import importlib.util
 import pandas as pd
 import glossary_surf
 
+# En mode exe PyInstaller, si l'utilisateur a un glossary_surf.py modifié à côté
+# de l'exe, le charger immédiatement en priorité sur la version bundlée.
+def _try_load_user_glossary():
+    if not getattr(sys, "frozen", False):
+        return
+    user_path = os.path.join(os.path.dirname(sys.executable), "glossary_surf.py")
+    if not os.path.isfile(user_path):
+        return
+    global glossary_surf
+    spec = importlib.util.spec_from_file_location("glossary_surf", user_path)
+    mod  = importlib.util.module_from_spec(spec)
+    sys.modules["glossary_surf"] = mod
+    spec.loader.exec_module(mod)
+    glossary_surf = mod
+
+_try_load_user_glossary()
+
+
+# ─── Correspondance numéro d'étage → libellé affiché dans les tableaux ────────
+_ETAGE_LABELS = {
+    -3.0: "3ème Sous-sol",
+    -2.0: "2ème Sous-sol",
+    -1.0: "1er Sous-sol",
+    -0.5: "Rez-de-jardin",
+     0.0: "Rez-de-chaussée",
+     0.5: "1er Entresol",
+     1.0: "1er Étage",
+     1.5: "2ème Entresol",
+     2.0: "2ème Étage",
+     2.5: "3ème Entresol",
+     3.0: "3ème Étage",
+     3.5: "4ème Entresol",
+     4.0: "4ème Étage",
+     4.5: "5ème Entresol",
+     5.0: "5ème Étage",
+     5.5: "6ème Entresol",
+     6.0: "6ème Étage",
+     6.5: "7ème Entresol",
+     7.0: "7ème Étage",
+     7.5: "8ème Entresol",
+     8.0: "8ème Étage",
+}
+
+def _etage_label(val):
+    """Convertit une valeur numérique d'étage en libellé français (ex. -1 → '1er Sous-sol')."""
+    if str(val) == "TOTAL":
+        return val
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return str(val)
+    if f in _ETAGE_LABELS:
+        return _ETAGE_LABELS[f]
+    n = int(f)
+    if f == n:
+        if n < 0:
+            abs_n = abs(n)
+            suffix = "er" if abs_n == 1 else "ème"
+            return f"{abs_n}{suffix} Sous-sol"
+        elif n == 0:
+            return "Rez-de-chaussée"
+        else:
+            suffix = "er" if n == 1 else "ème"
+            return f"{n}{suffix} Étage"
+    else:
+        entresol_n = int(f + 0.5)
+        suffix = "er" if entresol_n == 1 else "ème"
+        return f"{entresol_n}{suffix} Entresol"
+
 
 def _glossary_path():
     """Retourne le chemin absolu de ``glossary_surf.py``.
@@ -78,7 +147,7 @@ def extract_info(file_path):
                   "Occupant", "Aire", "Etage", "Chambre", "Lot", "Accessibilité aux publics"]
 
     # Type de surface directement depuis le calque : "SUB Contours" → "SUB"
-    df["type_su"] = df["Calque"].astype(str).str.strip().str.split().str[0]
+    df["type_su"] = df["Calque"].astype(str).str.strip().str.split().str[0].str.upper()
 
     return df
 
@@ -183,6 +252,146 @@ def TCD2Tab(df_t, type_su, mapping_df=None):
 
 
 
+# Colonnes de données SDP dans l'ordre normalisé
+_INFO_LABELS = {
+    "batiment": "Bâtiment",
+    "adresse":  "Adresse",
+    "proprio":  "Propriétaire",
+    "cadastre": "Cadastre",
+    "date":     "Date",
+    "dossier":  "Dossier",
+    "mesurage": "Mesurage",
+}
+
+
+def _build_info_lines(type_su, infos):
+    """Construit les lignes d'en-tête projet en omettant les champs vides."""
+    lines = [glossary_surf.real_su_name.get(type_su, type_su)]
+    for key, label in _INFO_LABELS.items():
+        val = infos.get(key, "").strip()
+        if val:
+            lines.append(f"{label} : {val}")
+    lines.append("")
+    return lines
+
+
+_SDP_DATA_COLS = [
+    "Planchers avant déductions",
+    "Vides Gaines Techniques",
+    "Surfaces avec h < 1.80 m",
+    "Stationnements",
+    "Combles non aménageables",
+    "Locaux techniques",
+    "Caves/annexes",
+    "Déduction 10% (Habitation)",
+]
+
+# Numéro de référence affiché au-dessus de chaque colonne (correspond aux nota)
+_SDP_COL_NUMBERS = {
+    "Planchers avant déductions":  "(1)",
+    "Vides Gaines Techniques":     "(2)",
+    "Surfaces avec h < 1.80 m":    "(3)",
+    "Total TA":                    "(4)",
+    "Stationnements":              "(5)",
+    "Combles non aménageables":    "(6)",
+    "Locaux techniques":           "(7)",
+    "Caves/annexes":               "(8)",
+    "Déduction 10% (Habitation)":  "(9)",
+    "Total":                       "(10)",
+}
+
+
+def _build_sdp_table(df_t, infos):
+    """Construit le tableau SDP figé avec colonnes calculées Total TA et SDP.
+
+    Structure :
+        Etage | (1) | (2) | (3) | Total TA | (5) | (6) | (7) | (8) | (9) | SDP
+
+    Total TA  = (1) - (2) - (3)
+    SDP       = Total TA - (5) - (6) - (7) - (8) - (9)
+    """
+    has_occupant = (
+        "Occupant" in df_t.columns
+        and df_t["Occupant"].str.strip().ne("").any()
+    )
+    index_cols = ["Etage", "Occupant"] if has_occupant else ["Etage"]
+
+    table = df_t.pivot_table(
+        index=index_cols,
+        columns="cat",
+        values="Aire",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    table.columns.name = None
+    table = table.reset_index()
+
+    # Ajouter les colonnes manquantes à 0
+    for col in _SDP_DATA_COLS:
+        if col not in table.columns:
+            table[col] = 0.0
+
+    deductions = ["Vides Gaines Techniques", "Surfaces avec h < 1.80 m"]
+    table["Total TA"] = (
+        table["Planchers avant déductions"]
+        - table[deductions].sum(axis=1)
+    )
+
+    reste_cols = ["Stationnements", "Combles non aménageables",
+                  "Locaux techniques", "Caves/annexes", "Déduction 10% (Habitation)"]
+    table["Total"] = table["Total TA"] - table[reste_cols].sum(axis=1)
+
+    ordered = index_cols + [
+        "Planchers avant déductions",
+        "Vides Gaines Techniques",
+        "Surfaces avec h < 1.80 m",
+        "Total TA",
+        "Stationnements",
+        "Combles non aménageables",
+        "Locaux techniques",
+        "Caves/annexes",
+        "Déduction 10% (Habitation)",
+        "Total",
+    ]
+    table = table[[c for c in ordered if c in table.columns]]
+
+    all_value_cols = [c for c in table.columns if c not in index_cols]
+
+    # Sous-totaux par étage si multi-occupants
+    if has_occupant:
+        etages = list(dict.fromkeys(table["Etage"]))
+        chunks = []
+        for etage in etages:
+            chunk = table[table["Etage"] == etage].copy()
+            chunks.append(chunk)
+            sub = {c: "" for c in table.columns}
+            sub["Etage"] = str(etage)
+            sub["Occupant"] = "— Total étage"
+            for c in all_value_cols:
+                sub[c] = pd.to_numeric(chunk[c], errors="coerce").sum()
+            chunks.append(pd.DataFrame([sub]))
+        table = pd.concat(chunks, ignore_index=True)
+
+    total_row = {c: "" for c in table.columns}
+    total_row["Etage"] = "TOTAL"
+    mask_not_subtotal = (
+        table.get("Occupant", pd.Series([""] * len(table))) != "— Total étage"
+    )
+    for c in all_value_cols:
+        total_row[c] = pd.to_numeric(table.loc[mask_not_subtotal, c], errors="coerce").sum()
+    table = pd.concat([table, pd.DataFrame([total_row])], ignore_index=True)
+
+    # Convertir les valeurs d'étage en libellés français
+    table["Etage"] = table["Etage"].apply(
+        lambda v: v if str(v) in ("TOTAL", "— Total étage") else _etage_label(v)
+    )
+
+    nota = glossary_surf.nota_surf.get("SDP", [])
+    return {"info": _build_info_lines("SDP", infos), "data": table, "sc_spans": {},
+            "nota": nota, "sdp_fixed": True, "col_numbers": _SDP_COL_NUMBERS,
+            "mesurage": infos.get("mesurage", "").strip()}
+
+
 def Tab_output(df_tcd, infos, super_cat_map=None):
     """Transforme *df_tcd* en tableaux finaux prêts à l'export.
 
@@ -215,9 +424,16 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
     output_tables = {}
     type_su_list = pd.unique(df_tcd["type_su"].values)
 
+    # Catégories prédéfinies dans le glossaire pour chaque type (ordre de référence)
+    from glossary_surf import predefined_cats as _predefined_cats
+
     for t in type_su_list:
         df_t = df_tcd[df_tcd["type_su"] == t].copy()
         df_t = df_t[df_t["cat"] != "autres"]
+
+        if t == "SDP":
+            output_tables["SDP"] = _build_sdp_table(df_t, infos)
+            continue
 
         has_occupant = (
             "Occupant" in df_t.columns
@@ -244,6 +460,22 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
                 .drop(columns=["_s"])
                 .reset_index(drop=True)
             )
+
+        # Ajouter les catégories prédéfinies manquantes (affichées à 0 si vides)
+        # SAUF si elles ont été supprimées (non présentes dans super_cat_map)
+        existing_cats = set(table.columns) - set(index_cols)
+        sc_all_cats = set()
+        if super_cat_map and t in super_cat_map:
+            for cats in super_cat_map[t].values():
+                sc_all_cats.update(cats)
+        predef = _predefined_cats.get(t, [])
+        cats_to_add = [
+            c for c in predef
+            if c not in existing_cats
+            and (not sc_all_cats or c in sc_all_cats)
+        ]
+        for c in cats_to_add:
+            table[c] = 0.0
 
         cat_cols = [c for c in table.columns if c not in index_cols]
         table["Total"] = table[cat_cols].sum(axis=1)
@@ -299,20 +531,14 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
             ).sum()
         table = pd.concat([table, pd.DataFrame([total_row])], ignore_index=True)
 
-        info_lines = [
-            glossary_surf.real_su_name.get(t, t),
-            f"Bâtiment : {infos['batiment']}",
-            f"Adresse : {infos['adresse']}",
-            f"Propriétaire : {infos['proprio']}",
-            f"Cadastre : {infos['cadastre']}",
-            f"Date : {infos['date']}",
-            f"Dossier : {infos['dossier']}",
-            f"Mesurage : {infos['mesurage']}",
-            "",
-        ]
+        # Convertir les valeurs d'étage en libellés français
+        table["Etage"] = table["Etage"].apply(
+            lambda v: v if str(v) in ("TOTAL", "— Total étage") else _etage_label(v)
+        )
 
         nota = glossary_surf.nota_surf.get(t, [])
-        output_tables[t] = {"info": info_lines, "data": table, "sc_spans": sc_spans, "nota": nota}
+        output_tables[t] = {"info": _build_info_lines(t, infos), "data": table, "sc_spans": sc_spans,
+                             "nota": nota, "mesurage": infos.get("mesurage", "").strip()}
 
     return output_tables
 
@@ -342,6 +568,7 @@ def export_tables_to_excel(output_tables, output_path):
             df         = content["data"]
             sc_spans   = content.get("sc_spans", {})
 
+            col_numbers  = content.get("col_numbers", {})
             n_info       = len(info_lines)
             sc_hdr_row   = n_info
             col_hdr_row  = n_info + (1 if sc_spans else 0)
@@ -372,17 +599,35 @@ def export_tables_to_excel(output_tables, output_path):
                                             "border": 1, "align": "center",
                                             "valign": "vcenter", "text_wrap": True})
 
+            # Colonnes calculées SDP (Total TA = orange clair, SDP = bleu acier gras)
+            fmt_sdp_ta_hdr = workbook.add_format({"bold": True, "bg_color": "#FCE4D6",
+                                                   "border": 1, "align": "center",
+                                                   "valign": "vcenter", "text_wrap": True})
+            fmt_sdp_hdr    = workbook.add_format({"bold": True, "bg_color": "#B0C4DE",
+                                                   "border": 2, "align": "center",
+                                                   "valign": "vcenter", "text_wrap": True})
+            fmt_sdp_ta_num = workbook.add_format({"bold": True, "bg_color": "#FCE4D6",
+                                                   "border": 1, "align": "center",
+                                                   "valign": "vcenter",
+                                                   "num_format": "#,##0.00"})
+            fmt_sdp_num    = workbook.add_format({"bold": True, "bg_color": "#B0C4DE",
+                                                   "border": 2, "align": "center",
+                                                   "valign": "vcenter",
+                                                   "num_format": "#,##0.00"})
+
+            is_sdp = content.get("sdp_fixed", False)
+
             # Données normales
             fmt_idx  = workbook.add_format({"border": 1})
             fmt_num  = workbook.add_format({"border": 1, "align": "center",
                                             "valign": "vcenter", "text_wrap": True,
                                             "num_format": "#,##0.00"})
 
-            # Total étage (fond bleu clair, merge Etage+Occupant)
-            fmt_etage_merge = workbook.add_format({"bold": True, "bg_color": "#DCE6F1",
+            # Total étage (fond rose RGB 255,151,156)
+            fmt_etage_merge = workbook.add_format({"bold": True, "bg_color": "#FF979C",
                                                    "border": 1, "align": "left",
                                                    "valign": "vcenter"})
-            fmt_etage_num   = workbook.add_format({"bold": True, "bg_color": "#DCE6F1",
+            fmt_etage_num   = workbook.add_format({"bold": True, "bg_color": "#FF979C",
                                                    "border": 1, "align": "center",
                                                    "valign": "vcenter",
                                                    "num_format": "#,##0.00"})
@@ -411,10 +656,16 @@ def export_tables_to_excel(output_tables, output_path):
 
             # ── En-têtes colonnes ────────────────────────────────────────────
             for c_idx, col_name in enumerate(cols):
+                num    = col_numbers.get(col_name, "") if col_numbers else ""
+                label  = f"{num}\n{col_name}" if num else col_name
                 if str(col_name).startswith("[") and str(col_name).endswith("]"):
                     worksheet.write(col_hdr_row, c_idx, "Sous-total", fmt_sub)
+                elif is_sdp and col_name == "Total TA":
+                    worksheet.write(col_hdr_row, c_idx, label, fmt_sdp_ta_hdr)
+                elif is_sdp and col_name == "Total":
+                    worksheet.write(col_hdr_row, c_idx, label, fmt_sdp_hdr)
                 else:
-                    worksheet.write(col_hdr_row, c_idx, col_name, fmt_col)
+                    worksheet.write(col_hdr_row, c_idx, label, fmt_col)
 
             # ── Données ligne par ligne ──────────────────────────────────────
             for row_i, row in df.iterrows():
@@ -436,10 +687,16 @@ def export_tables_to_excel(output_tables, output_path):
                     for c_idx, col in enumerate(value_cols):
                         base = len(index_cols)
                         v = row[col]
+                        if is_sdp and col == "Total TA":
+                            f = fmt_sdp_ta_num
+                        elif is_sdp and col == "Total":
+                            f = fmt_sdp_num
+                        else:
+                            f = f_num
                         try:
-                            worksheet.write_number(xl_row, base + c_idx, float(v), f_num)
+                            worksheet.write_number(xl_row, base + c_idx, float(v), f)
                         except (TypeError, ValueError):
-                            worksheet.write(xl_row, base + c_idx, v if v != "" else 0, f_num)
+                            worksheet.write(xl_row, base + c_idx, v if v != "" else 0, f)
 
                 elif is_etage_total:
                     f_merge, f_num = fmt_etage_merge, fmt_etage_num
@@ -452,10 +709,16 @@ def export_tables_to_excel(output_tables, output_path):
                     for c_idx, col in enumerate(value_cols):
                         base = len(index_cols)
                         v = row[col]
+                        if is_sdp and col == "Total TA":
+                            f = fmt_sdp_ta_num
+                        elif is_sdp and col == "Total":
+                            f = fmt_sdp_num
+                        else:
+                            f = f_num
                         try:
-                            worksheet.write_number(xl_row, base + c_idx, float(v), f_num)
+                            worksheet.write_number(xl_row, base + c_idx, float(v), f)
                         except (TypeError, ValueError):
-                            worksheet.write(xl_row, base + c_idx, v if v != "" else 0, f_num)
+                            worksheet.write(xl_row, base + c_idx, v if v != "" else 0, f)
 
                 else:
                     # Ligne normale — hauteur selon longueur max du texte Occupant
@@ -467,10 +730,16 @@ def export_tables_to_excel(output_tables, output_path):
                     for c_idx, col in enumerate(value_cols):
                         base = len(index_cols)
                         v = row[col]
+                        if is_sdp and col == "Total TA":
+                            f = fmt_sdp_ta_num
+                        elif is_sdp and col == "Total":
+                            f = fmt_sdp_num
+                        else:
+                            f = fmt_num
                         try:
-                            worksheet.write_number(xl_row, base + c_idx, float(v), fmt_num)
+                            worksheet.write_number(xl_row, base + c_idx, float(v), f)
                         except (TypeError, ValueError):
-                            worksheet.write(xl_row, base + c_idx, v if v != "" else "", fmt_num)
+                            worksheet.write(xl_row, base + c_idx, v if v != "" else "", f)
 
             # ── Largeur des colonnes ─────────────────────────────────────────
             for i, col in enumerate(cols):
@@ -490,26 +759,133 @@ def export_tables_to_excel(output_tables, output_path):
             worksheet.set_row(col_hdr_row, hdr_h)
 
             # ── Nota en bas de tableau ───────────────────────────────────────
-            nota = content.get("nota", [])
-            if nota:
-                nota_start = data_row + len(df) + 1
-                fmt_sep = workbook.add_format({"bottom": 1, "bottom_color": "#AAAAAA"})
-                worksheet.write(nota_start - 1, 0, "", fmt_sep)
-                fmt_nota = workbook.add_format({
-                    "font_size": 8, "italic": True, "fg_color": "#555555",
-                    "text_wrap": True, "valign": "top",
-                })
-                n_cols = len(cols)
-                for i, line in enumerate(nota):
-                    r = nota_start + i
-                    if n_cols > 1:
-                        worksheet.merge_range(r, 0, r, n_cols - 1, line, fmt_nota)
-                    else:
-                        worksheet.write(r, 0, line, fmt_nota)
-                    # Hauteur proportionnelle à la longueur du texte (col width ≈ 11*n_cols chars)
-                    approx_chars_per_line = max(1, 11 * n_cols)
-                    nb_lines = max(1, len(line) // approx_chars_per_line + 1)
-                    worksheet.set_row(r, nb_lines * 12 + 4)
+            nota     = content.get("nota", [])
+            mesurage = content.get("mesurage", "")
+            n_cols   = len(cols)
+
+            nota_intro_line = (
+                f"Nota : les superficies ont été calculées après mesurage des locaux en {mesurage}. "
+                "\n Les désignations ont été déterminées en fonction des signes apparents constatés "
+                "le jour du mesurage."
+            )
+
+            nota_start = data_row + len(df) + 1
+            fmt_sep = workbook.add_format({"bottom": 1, "bottom_color": "#AAAAAA"})
+            worksheet.write(nota_start - 1, 0, "", fmt_sep)
+            fmt_nota_intro = workbook.add_format({
+                "font_size": 9, "italic": True, "text_wrap": True, "valign": "top",
+            })
+            fmt_nota = workbook.add_format({
+                "font_size": 8, "italic": True, "fg_color": "#555555",
+                "text_wrap": True, "valign": "top",
+            })
+
+            # Ligne intro mesurage (toujours présente)
+            if n_cols > 1:
+                worksheet.merge_range(nota_start, 0, nota_start, n_cols - 1,
+                                      nota_intro_line, fmt_nota_intro)
+            else:
+                worksheet.write(nota_start, 0, nota_intro_line, fmt_nota_intro)
+            approx = max(1, 11 * n_cols)
+            worksheet.set_row(nota_start, max(1, len(nota_intro_line) // approx + 1) * 12 + 4)
+
+            # Nota réglementaires
+            for i, line in enumerate(nota):
+                r = nota_start + 1 + i
+                if n_cols > 1:
+                    worksheet.merge_range(r, 0, r, n_cols - 1, line, fmt_nota)
+                else:
+                    worksheet.write(r, 0, line, fmt_nota)
+                approx_chars_per_line = max(1, 11 * n_cols)
+                nb_lines = max(1, len(line) // approx_chars_per_line + 1)
+                worksheet.set_row(r, nb_lines * 12 + 4)
+
+
+def html_from_excel(xlsx_path, infos):
+    """Relit un fichier ``.xlsx`` généré par Rfill et reconstruit ``output_tables`` pour re-générer le HTML.
+
+    Chaque feuille de l'Excel correspond à un type de surface (SUB, SU, SHO…).
+    Les lignes d'en-tête projet (italique, avant le tableau) sont ignorées : seul le
+    tableau de données est relu, les métadonnées proviennent de ``infos``.
+
+    Args:
+        xlsx_path (str): Chemin du ``.xlsx`` produit par :func:`export_tables_to_excel`.
+        infos (dict): Métadonnées projet (batiment, adresse, proprio, cadastre,
+            date, dossier, mesurage).
+
+    Returns:
+        dict: ``output_tables`` au même format que :func:`Tab_output`,
+        prêt pour :func:`export_tables_to_html`.
+
+    Raises:
+        ValueError: Si le fichier ne contient aucune feuille reconnue.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    output_tables = {}
+
+    for sheet_name in wb.sheetnames:
+        type_su = sheet_name.strip().upper()
+
+        # Lire toutes les lignes de la feuille
+        ws = wb[sheet_name]
+        rows = list(ws.values)
+        if not rows:
+            continue
+
+        # Trouver la ligne d'en-tête du tableau : première ligne dont la première
+        # cellule vaut "Etage" (les lignes d'infos projet sont avant)
+        header_idx = None
+        for i, row in enumerate(rows):
+            if row and str(row[0]).strip() == "Etage":
+                header_idx = i
+                break
+
+        if header_idx is None:
+            continue
+
+        headers = [str(c).strip() if c is not None else "" for c in rows[header_idx]]
+
+        # Lignes de données : tout ce qui suit l'en-tête jusqu'aux lignes nota
+        # (nota : ligne dont toutes les colonnes sauf la première sont vides ou None)
+        data_rows = []
+        for row in rows[header_idx + 1:]:
+            if row[0] is None:
+                break
+            vals = [c for c in row[1:] if c is not None and str(c).strip() not in ("", "None")]
+            if not vals and str(row[0]).strip().startswith("Nota"):
+                break
+            data_rows.append(row)
+
+        if not data_rows:
+            continue
+
+        df = pd.DataFrame(data_rows, columns=headers)
+
+        # Convertir colonnes numériques
+        index_cols = [c for c in ("Etage", "Occupant") if c in df.columns]
+        for col in df.columns:
+            if col not in index_cols:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna("")
+
+        nota = glossary_surf.nota_surf.get(type_su, [])
+        is_sdp = type_su == "SDP"
+
+        output_tables[type_su] = {
+            "info": _build_info_lines(type_su, infos),
+            "data": df,
+            "sc_spans": {},
+            "nota": nota,
+            "mesurage": infos.get("mesurage", "").strip(),
+            "sdp_fixed": is_sdp,
+            "col_numbers": _SDP_COL_NUMBERS if is_sdp else {},
+        }
+
+    if not output_tables:
+        raise ValueError("Aucune feuille reconnue dans le fichier Excel.")
+
+    return output_tables
 
 
 def update_glossary(mapping_df, type_su, super_cats_for_type=None):
@@ -547,6 +923,7 @@ def update_glossary(mapping_df, type_su, super_cats_for_type=None):
             continue
         if cat not in type_glossary:
             type_glossary[cat] = []
+            modified = True
         existing_lower = [k.lower() for k in type_glossary[cat]]
         if aff.lower() not in existing_lower:
             type_glossary[cat].append(aff.lower())
@@ -555,6 +932,12 @@ def update_glossary(mapping_df, type_su, super_cats_for_type=None):
     if super_cats_for_type:
         new_sc_names = list(super_cats_for_type.keys())
         new_cats = [c for cats in super_cats_for_type.values() for c in cats]
+
+        # S'assurer que toutes les catégories ont une entrée dans le glossaire (même vide)
+        for cat in new_cats:
+            if cat and cat not in type_glossary:
+                type_glossary[cat] = []
+                modified = True
 
         if glossary_surf.superficie_names.get(type_su) != new_sc_names:
             glossary_surf.superficie_names[type_su] = new_sc_names
@@ -578,6 +961,8 @@ def update_glossary(mapping_df, type_su, super_cats_for_type=None):
         + pprint.pformat(glossary_surf.superficie_names, width=120, sort_dicts=False)
         + "\n\npredefined_cats = "
         + pprint.pformat(glossary_surf.predefined_cats, width=120, sort_dicts=False)
+        + "\n\ncat_colors_sub = "
+        + pprint.pformat(glossary_surf.cat_colors_sub, width=120, sort_dicts=False)
         + "\n\nnota_surf = "
         + pprint.pformat(glossary_surf.nota_surf, width=120, sort_dicts=False)
         + "\n"
@@ -685,16 +1070,16 @@ def export_tables_to_html(output_tables, infos, html_path):
     """
     logo_ge     = _img_to_base64("logo_ge.jpg")
     logo_rtaxes = _img_to_base64("logo_rtaxes.jpg")
-    tampon      = _img_to_base64("Tampom_rtaxes.jpg")
+    tampon      = _img_to_base64("Tampon GE pr tblx.jpg")
 
     esc = html.escape
     mesurage = infos.get("mesurage", "").strip() or "xx 2026"
-    date_v   = esc(infos.get("date", ""))
-    dossier  = esc(infos.get("dossier", ""))
-    batiment = esc(infos.get("batiment", ""))
-    adresse  = esc(infos.get("adresse", ""))
-    proprio  = esc(infos.get("proprio", ""))
-    cadastre = esc(infos.get("cadastre", ""))
+    date_v   = esc(infos.get("date", "").strip())
+    dossier  = esc(infos.get("dossier", "").strip())
+    batiment = esc(infos.get("batiment", "").strip())
+    adresse  = esc(infos.get("adresse", "").strip())
+    proprio  = esc(infos.get("proprio", "").strip())
+    cadastre = esc(infos.get("cadastre", "").strip())
 
     css = """
 @page { size: A4 landscape; margin: 10mm 18mm; }
@@ -706,13 +1091,16 @@ body { font-family: Arial, sans-serif; font-size: 10px; color: #222; margin: 0; 
 header { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: center;
          border-bottom: 2px solid #1a2a4a; padding-bottom: 6px; margin-bottom: 10px; gap: 8px; }
 header .logos { display: flex; align-items: center; gap: 10px; }
-header .logos img { max-height: 46px; max-width: 120px; object-fit: contain; }
+header .logos img { max-height: 70px; max-width: 180px; object-fit: contain; }
 header .infos { text-align: center; font-size: 9px; line-height: 1.35; }
 header .infos .title { font-size: 12px; font-weight: bold; color: #1a2a4a;
                        text-transform: uppercase; margin-bottom: 3px; }
 header .meta { text-align: right; font-size: 9px; line-height: 1.4; }
 header .meta .row { margin-bottom: 2px; }
 header .meta .k { color: #555; font-weight: bold; margin-right: 4px; }
+header .stamp-block { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+header .stamp-block img.tampon { max-height: 70px; max-width: 160px; object-fit: contain; }
+header .stamp-block img.oge { max-height: 28px; max-width: 120px; object-fit: contain; }
 table.surf { width: 100%; border-collapse: collapse; font-size: 9px;
              table-layout: fixed; }
 table.surf th, table.surf td { border: 1px solid #888; padding: 3px 4px;
@@ -721,8 +1109,9 @@ table.surf th, table.surf td { border: 1px solid #888; padding: 3px 4px;
 table.surf th { background: #DDEEFF; font-weight: bold; }
 table.surf th.sc { background: #B0C4DE; }
 table.surf th.sub { background: #E8F0E8; }
+table.surf th span.colnum { display: block; font-size: 8px; color: #555; font-weight: normal; margin-bottom: 2px; }
 table.surf td.idx { text-align: left; }
-table.surf tr.total-etage td { background: #DCE6F1; font-weight: bold; text-align: left; }
+table.surf tr.total-etage td { background: #FF979C; font-weight: bold; text-align: left; }
 table.surf tr.total-etage td.num { text-align: center; }
 table.surf tr.total td { background: #B8CCE4; font-weight: bold; text-align: left; }
 table.surf tr.total td.num { text-align: center; }
@@ -746,6 +1135,11 @@ table.surf tr.total td.num { text-align: center; }
             letter-spacing: 0.3px; }
   .tabs a:hover { background: #2a3a5a; color: #fff; }
   .tabs a.active { background: #fff; color: #1a2a4a; }
+  .tabs .btn-print { margin-left: auto; background: #2e7d32; color: #fff;
+                     border: none; padding: 6px 16px; border-radius: 4px;
+                     font-size: 11px; font-weight: bold; cursor: pointer;
+                     letter-spacing: 0.3px; }
+  .tabs .btn-print:hover { background: #1b5e20; }
   .page { background: #fff; width: 297mm; margin: 0 auto 14px auto;
           padding: 10mm 18mm; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
   body:not([data-all]) .page { display: none; }
@@ -760,22 +1154,52 @@ table.surf tr.total td.num { text-align: center; }
             logos_html += f'<img src="{logo_ge}" alt="">'
         if logo_rtaxes:
             logos_html += f'<img src="{logo_rtaxes}" alt="">'
+
+        # Ligne 1 : Bâtiment / Adresse
+        bat_adr_parts = []
+        if batiment:
+            bat_adr_parts.append(f"<b>Bâtiment :</b> {batiment}")
+        if adresse:
+            bat_adr_parts.append(f"<b>Adresse :</b> {adresse}")
+        bat_adr_html = " &nbsp;·&nbsp; ".join(bat_adr_parts)
+
+        # Ligne 2 : Propriétaire / Cadastre
+        prop_cad_parts = []
+        if proprio:
+            prop_cad_parts.append(f"<b>Propriétaire :</b> {proprio}")
+        if cadastre:
+            prop_cad_parts.append(f"<b>Cadastre :</b> {cadastre}")
+        prop_cad_html = " &nbsp;·&nbsp; ".join(prop_cad_parts)
+
+        infos_lines = "".join(
+            f"<div>{line}</div>" for line in [bat_adr_html, prop_cad_html] if line
+        )
+
+        # Droite : tampon GE + date/dossier + logo OGE
+        stamp_right = ""
+        if tampon:
+            stamp_right += f'<img class="tampon" src="{tampon}" alt="">'
+        if logo_ge:
+            stamp_right += f'<img class="oge" src="{logo_ge}" alt="">'
+
+        meta_date_dossier = "".join([
+            f'<div class="row"><span class="k">Date :</span>{date_v}</div>' if date_v else "",
+            f'<div class="row"><span class="k">Dossier :</span>{dossier}</div>' if dossier else "",
+        ])
+
         return f"""
 <header>
   <div class="logos">{logos_html}</div>
   <div class="infos">
     <div class="title">{esc(sheet_title)}</div>
-    <div><b>Bâtiment :</b> {batiment} &nbsp;·&nbsp; <b>Adresse :</b> {adresse}</div>
-    <div><b>Propriétaire :</b> {proprio} &nbsp;·&nbsp; <b>Cadastre :</b> {cadastre}</div>
+    {infos_lines}
+    <div style="font-size:9px;margin-top:3px">{meta_date_dossier}</div>
   </div>
-  <div class="meta">
-    <div class="row"><span class="k">Date :</span>{date_v}</div>
-    <div class="row"><span class="k">Dossier :</span>{dossier}</div>
-  </div>
+  <div class="stamp-block">{stamp_right}</div>
 </header>
 """
 
-    def render_table(df, sc_spans):
+    def render_table(df, sc_spans, col_numbers=None):
         cols = list(df.columns)
         index_cols = [c for c in ("Etage", "Occupant") if c in cols]
         value_cols = [c for c in cols if c not in index_cols]
@@ -818,12 +1242,15 @@ table.surf tr.total td.num { text-align: center; }
                     i += 1
             sc_row = "<tr>" + "".join(cells) + "</tr>"
 
-        # Ligne en-tête colonnes
+        # Ligne en-tête colonnes (numéro de référence intégré si présent)
         hdr_cells = []
         for c in cols:
-            cs = str(c)
+            cs  = str(c)
+            num = col_numbers.get(c, "") if col_numbers else ""
             if cs.startswith("[") and cs.endswith("]"):
                 hdr_cells.append(f'<th class="sub">Sous-total</th>')
+            elif num:
+                hdr_cells.append(f'<th><span class="colnum">{esc(num)}</span><br>{esc(cs)}</th>')
             else:
                 hdr_cells.append(f"<th>{esc(cs)}</th>")
         hdr_row = "<tr>" + "".join(hdr_cells) + "</tr>"
@@ -883,9 +1310,10 @@ table.surf tr.total td.num { text-align: center; }
     tabs = []
     for idx, (type_su, content) in enumerate(output_tables.items()):
         sheet_title = glossary_surf.real_su_name.get(type_su, type_su)
-        df       = content["data"]
-        sc_spans = content.get("sc_spans", {})
-        nota     = content.get("nota", [])
+        df          = content["data"]
+        sc_spans    = content.get("sc_spans", {})
+        nota        = content.get("nota", [])
+        col_numbers = content.get("col_numbers", {})
 
         nota_list_html = ""
         if nota:
@@ -911,7 +1339,7 @@ table.surf tr.total td.num { text-align: center; }
         page_html = (
             f'<section class="page{active}" id="{page_id}">'
             + render_header(sheet_title)
-            + render_table(df, sc_spans)
+            + render_table(df, sc_spans, col_numbers)
             + footer_html
             + "</section>"
         )
@@ -920,8 +1348,8 @@ table.surf tr.total td.num { text-align: center; }
     tabs_html = (
         '<nav class="tabs">'
         + "".join(tabs)
-        + '<a href="#" class="tab-link" data-target="__all__" '
-          'style="margin-left:auto">Tout afficher</a>'
+        + '<a href="#" class="tab-link" data-target="__all__">Tout afficher</a>'
+        + '<button class="btn-print" onclick="window.print()">Imprimer / PDF</button>'
         + "</nav>"
     )
 
