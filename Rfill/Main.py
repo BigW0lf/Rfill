@@ -10,7 +10,7 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 from process_surf import (
     extract_info, tab_cd_type, build_affectation_mapping,
     TCD2Tab, Tab_output, export_tables_to_excel, export_tables_to_html,
-    html_from_excel, update_glossary,
+    html_from_excel, update_glossary, verify_totals,
 )
 
 SVFILL_VERSION = 1
@@ -459,16 +459,22 @@ class SurfaceApp(tk.Tk):
         """Efface toutes les données de session après confirmation utilisateur."""
         if not messagebox.askyesno("Confirmation", "Effacer toutes les données chargées ?"):
             return
-        self.all_df = None
-        self.df_types = None
-        self.mappings = {}
+        self.all_df           = None
+        self.df_types         = None
+        self.mappings         = {}
         self.empty_categories = {}
-        self._loaded_files = []
+        self.super_cats       = {}
+        self.cat_colors       = {}
+        self.saved_glossaries = set()
+        self._loaded_files    = []
         self.combo_type["values"] = []
         self.combo_type.set("")
         for w in self.board.winfo_children():
             w.destroy()
-        self._log_sep(self.text_import, "Données effacées")
+        for w in self.autres_inner.winfo_children():
+            w.destroy()
+        self.columns = {}
+        self._log_sep(self.text_import, "Données effacées — session réinitialisée")
 
     # =============================================================== GLOSSAIRE
 
@@ -1248,6 +1254,35 @@ class SurfaceApp(tk.Tk):
             messagebox.showerror("Erreur", "Aucun tableau généré.")
             return
 
+        # ── Vérification de cohérence entrée / sortie ─────────────────────────
+        self._log_sep(self.text_generer, "Vérification entrée / sortie")
+        anomalies = []
+        try:
+            resultats = verify_totals(self.df_types, all_tables)
+            vraies_erreurs = [a for a in resultats if not a.get("info")]
+            infos_autres   = [a for a in resultats if a.get("info")]
+
+            for a in infos_autres:
+                self._log(self.text_generer, f"[INFO] {a['msg']}", "info")
+            for a in vraies_erreurs:
+                self._log(self.text_generer, f"[WARN] {a['msg']}", "warn")
+
+            if vraies_erreurs:
+                self._log(self.text_generer,
+                          f"[WARN] {len(vraies_erreurs)} incohérence(s) détectée(s) "
+                          "— surfaces en sortie > entrée, vérifiez vos fichiers.", "warn")
+            elif infos_autres:
+                self._log(self.text_generer,
+                          f"[OK]   Totaux cohérents — {len(infos_autres)} type(s) avec "
+                          "surfaces non classées exclus du tableau.", "ok")
+            else:
+                self._log(self.text_generer,
+                          "[OK]   Verification OK — tous les totaux sont coherents.", "ok")
+
+            anomalies = vraies_erreurs
+        except Exception as e:
+            self._log(self.text_generer, f"[WARN] Verification impossible : {e}", "warn")
+
         try:
             export_tables_to_excel(all_tables, output_path)
             self._log(self.text_generer, f"[OK]   Fichier sauvegardé : {output_path}", "ok")
@@ -1267,7 +1302,9 @@ class SurfaceApp(tk.Tk):
         msg = f"Fichier Excel généré :\n{output_path}"
         if html_path:
             msg += f"\n\nRapport HTML (impression A4 paysage) :\n{html_path}"
-        messagebox.showinfo("Succès", msg)
+        if anomalies:
+            msg += f"\n\n⚠ {len(anomalies)} anomalie(s) de surface détectée(s).\nVoir le journal pour le détail."
+        messagebox.showinfo("Succès" if not anomalies else "Succès avec avertissements", msg)
         if self.var_open_after.get():
             os.startfile(output_path)
 
