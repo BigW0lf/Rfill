@@ -137,14 +137,49 @@ def extract_info(file_path):
     Raises:
         ValueError: Si le fichier ne contient aucune ligne de données valides.
     """
-    df = pd.read_excel(file_path, header=None)
+    _EXPECTED_COLS = ["num_piece", "Descriptif", "Calque", "N", "Affectation",
+                      "Occupant", "Aire", "Etage", "Chambre", "Lot",
+                      "Accessibilité aux publics"]
+
+    # GeoGex peut exporter avec une ligne d'en-tête — on cherche la ligne contenant "Calque"
+    df_raw = pd.read_excel(file_path, header=None)
+
+    header_row = None
+    for i, row in df_raw.iterrows():
+        if any(str(v).strip().lower() == "calque" for v in row):
+            header_row = i
+            break
+
+    if header_row is not None:
+        # Relire avec l'en-tête détecté
+        df = pd.read_excel(file_path, header=header_row)
+        # Renommer les colonnes en noms normalisés par position
+        if len(df.columns) >= len(_EXPECTED_COLS):
+            rename_map = {df.columns[i]: _EXPECTED_COLS[i] for i in range(len(_EXPECTED_COLS))}
+            df = df.rename(columns=rename_map)
+        # Conserver uniquement les colonnes attendues
+        df = df[[c for c in _EXPECTED_COLS if c in df.columns]].copy()
+    else:
+        df = df_raw.copy()
 
     # Les lignes de données ont un entier en colonne 0 (numéro de séquence AutoCAD)
-    df[0] = pd.to_numeric(df[0], errors="coerce")
-    df = df[df[0].notna()].copy().reset_index(drop=True)
+    col0 = df.columns[0]
+    df[col0] = pd.to_numeric(df[col0], errors="coerce")
+    df = df[df[col0].notna()].copy().reset_index(drop=True)
 
-    df.columns = ["num_piece", "Descriptif", "Calque", "N", "Affectation",
-                  "Occupant", "Aire", "Etage", "Chambre", "Lot", "Accessibilité aux publics"]
+    if df.empty:
+        raise ValueError("Aucune ligne de données valides trouvée dans le fichier.")
+
+    # S'assurer qu'on a exactement les 11 colonnes attendues (compléter si manquant)
+    if list(df.columns) != _EXPECTED_COLS:
+        # Essayer d'assigner par position
+        n = min(len(df.columns), len(_EXPECTED_COLS))
+        col_map = {df.columns[i]: _EXPECTED_COLS[i] for i in range(n)}
+        df = df.rename(columns=col_map)
+        for c in _EXPECTED_COLS:
+            if c not in df.columns:
+                df[c] = ""
+        df = df[_EXPECTED_COLS]
 
     # Type de surface directement depuis le calque : "SUB Contours" → "SUB"
     df["type_su"] = df["Calque"].astype(str).str.strip().str.split().str[0].str.upper()
