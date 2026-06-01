@@ -1258,7 +1258,7 @@ class SurfaceApp(tk.Tk):
         self._log_sep(self.text_generer, "Vérification entrée / sortie")
         anomalies = []
         try:
-            resultats = verify_totals(self.df_types, all_tables)
+            resultats = verify_totals(self.df_types, all_tables, mappings=self.mappings)
             vraies_erreurs = [a for a in resultats if not a.get("info")]
             infos_autres   = [a for a in resultats if a.get("info")]
 

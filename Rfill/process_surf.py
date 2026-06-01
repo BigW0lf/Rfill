@@ -578,47 +578,70 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
     return output_tables
 
 
-def verify_totals(df_types, output_tables):
+def verify_totals(df_types, output_tables, mappings=None):
     """Compare les totaux du fichier source avec les tableaux générés.
 
-    Pour chaque type de surface, vérifie par étage et au global que la somme
-    des aires en entrée correspond à la somme en sortie (hors lignes "autres"
-    non classées). Retourne une liste de messages d'anomalie.
+    Vérifie par étage et au global que :
+    - entrée classée (hors "autres") == sortie tableau  → OK
+    - sortie > entrée classée                          → anomalie réelle (warn)
+    - entrée classée > sortie                          → anomalie réelle (warn)
+    - surfaces non classées (autres)                   → info seulement
 
     Args:
-        df_types (list[DataFrame]): Sortie de :func:`tab_cd_type` — données brutes agrégées.
-        output_tables (dict): Sortie de :func:`Tab_output` — tableaux finaux.
+        df_types (list[DataFrame]): Sortie de :func:`tab_cd_type`.
+        output_tables (dict): Sortie de :func:`Tab_output`.
+        mappings (dict, optional): ``{type_su: DataFrame['Affectation','cat']}``
+            depuis l'interface. Permet de savoir exactement quelles affectations
+            sont "autres". Si absent, toute la différence entrée-sortie est
+            considérée comme "autres".
 
     Returns:
-        list[dict]: Chaque dict a les clés ``type``, ``niveau``, ``entree``,
-        ``sortie``, ``ecart``, ``msg``.
+        list[dict]: clés ``type``, ``niveau``, ``entree``, ``entree_classee``,
+        ``autres``, ``sortie``, ``ecart``, ``info`` (bool), ``msg``.
     """
     anomalies = []
+    mappings = mappings or {}
 
     for df_t in df_types:
         t = df_t["type_su"].iloc[0]
         if t not in output_tables:
             continue
+
+        # ── Identifier les affectations "autres" via le mapping ───────────────
+        mapping_df = mappings.get(t)
+        if mapping_df is not None:
+            affectations_autres = set(
+                mapping_df.loc[mapping_df["cat"] == "autres", "Affectation"].tolist()
+            )
+        else:
+            affectations_autres = set()  # inconnu — on utilisera la différence
+
+        # ── SDP : vérification globale (Planchers avant déductions) ──────────
         if output_tables[t].get("sdp_fixed"):
-            # SDP : vérification globale uniquement (colonnes calculées)
-            total_in = pd.to_numeric(df_t["Aire"], errors="coerce").sum()
+            df_t_classee = df_t[~df_t["Affectation"].isin(affectations_autres)] \
+                           if affectations_autres else df_t
+            total_in_c = pd.to_numeric(df_t_classee["Aire"], errors="coerce").sum()
+            total_in   = pd.to_numeric(df_t["Aire"],         errors="coerce").sum()
             tbl = output_tables[t]["data"]
             total_row = tbl[tbl["Etage"].astype(str) == "TOTAL"]
-            if not total_row.empty:
-                # Colonne "Planchers avant déductions" = entrée brute comparable
-                if "Planchers avant déductions" in tbl.columns:
-                    total_out = pd.to_numeric(
-                        total_row["Planchers avant déductions"].iloc[0], errors="coerce"
-                    )
-                    ecart = abs(float(total_in) - float(total_out or 0))
-                    if ecart > 0.01:
-                        anomalies.append({
-                            "type": t, "niveau": "TOTAL",
-                            "entree": round(float(total_in), 2),
-                            "sortie": round(float(total_out or 0), 2),
-                            "ecart": round(ecart, 2),
-                            "msg": f"{t} — TOTAL : entrée {total_in:.2f} ≠ sortie {total_out:.2f} (écart {ecart:.2f} m²)",
-                        })
+            if not total_row.empty and "Planchers avant déductions" in tbl.columns:
+                total_out = float(pd.to_numeric(
+                    total_row["Planchers avant déductions"].iloc[0], errors="coerce") or 0)
+                ecart = total_in_c - total_out
+                autres = float(total_in) - float(total_in_c)
+                if abs(ecart) > 0.01:
+                    anomalies.append({
+                        "type": t, "niveau": "TOTAL",
+                        "entree": round(float(total_in), 2),
+                        "entree_classee": round(float(total_in_c), 2),
+                        "autres": round(autres, 2),
+                        "sortie": round(total_out, 2),
+                        "ecart": round(ecart, 2),
+                        "info": False,
+                        "msg": (f"{t} | TOTAL : classes={total_in_c:.2f} m2 "
+                                f"sortie={total_out:.2f} m2 "
+                                f"ecart={ecart:+.2f} m2"),
+                    })
             continue
 
         tbl = output_tables[t]["data"]
@@ -628,79 +651,92 @@ def verify_totals(df_types, output_tables):
                       and not (str(c).startswith("[") and str(c).endswith("]"))
                       and c != "Total"]
 
-        # Surfaces "autres" exclues du tableau — écart normal attendu
-        autres_mask = df_t["Affectation"].isin(
-            mapping_autres if "mapping_autres" in dir() else []
-        )
-        # On calcule les "autres" depuis df_t directement
-        # (pas de mapping disponible ici, on approche par diff entrée-sortie globale)
-
-        # ── Vérification par étage ────────────────────────────────────────────
-        etages_in = df_t["Etage"].unique()
-        for etage in etages_in:
-            sum_in = pd.to_numeric(
-                df_t.loc[df_t["Etage"] == etage, "Aire"], errors="coerce"
-            ).sum()
+        # ── Par étage ─────────────────────────────────────────────────────────
+        for etage in df_t["Etage"].unique():
+            df_etage = df_t[df_t["Etage"] == etage]
+            sum_in       = float(pd.to_numeric(df_etage["Aire"], errors="coerce").sum())
+            if affectations_autres:
+                sum_autres   = float(pd.to_numeric(
+                    df_etage.loc[df_etage["Affectation"].isin(affectations_autres), "Aire"],
+                    errors="coerce").sum())
+            else:
+                sum_autres = 0.0
+            sum_in_c = sum_in - sum_autres  # ce qui doit apparaître dans le tableau
 
             etage_label = _etage_label(etage)
-            mask = (
+            mask_tbl = (
                 tbl["Etage"].astype(str) == str(etage_label)
             ) & (
                 tbl.get("Occupant", pd.Series([""] * len(tbl))).astype(str) != "— Total étage"
             )
-            rows_out = tbl[mask]
-            sum_out = rows_out[value_cols].apply(
-                pd.to_numeric, errors="coerce"
-            ).sum().sum() if not rows_out.empty else 0.0
+            rows_out = tbl[mask_tbl]
+            sum_out  = float(rows_out[value_cols].apply(
+                pd.to_numeric, errors="coerce").sum().sum()) if not rows_out.empty else 0.0
 
-            ecart = float(sum_in) - float(sum_out)
-            # Un écart positif = surfaces non classées (autres) = normal
-            # Un écart négatif = surfaces en trop en sortie = anomalie réelle
-            if ecart < -0.01:
+            ecart = sum_in_c - sum_out
+            if abs(ecart) > 0.01:
+                is_info = affectations_autres and abs(sum_in_c - sum_out) < 0.01
                 anomalies.append({
                     "type": t, "niveau": str(etage_label),
-                    "entree": round(float(sum_in), 2),
-                    "sortie": round(float(sum_out), 2),
+                    "entree": round(sum_in, 2),
+                    "entree_classee": round(sum_in_c, 2),
+                    "autres": round(sum_autres, 2),
+                    "sortie": round(sum_out, 2),
                     "ecart": round(ecart, 2),
+                    "info": False,
                     "msg": (f"{t} | {etage_label} : "
-                            f"sortie ({sum_out:.2f} m2) > entree ({sum_in:.2f} m2) "
-                            f"- surface en trop de {abs(ecart):.2f} m2"),
+                            f"classes={sum_in_c:.2f} m2 "
+                            f"sortie={sum_out:.2f} m2 "
+                            f"ecart={ecart:+.2f} m2"
+                            + (f" (dont {sum_autres:.2f} m2 non classes)" if sum_autres > 0 else "")),
                 })
 
-        # ── Vérification globale ──────────────────────────────────────────────
-        total_in = pd.to_numeric(df_t["Aire"], errors="coerce").sum()
+        # ── Global ────────────────────────────────────────────────────────────
+        total_in   = float(pd.to_numeric(df_t["Aire"], errors="coerce").sum())
+        if affectations_autres:
+            total_autres = float(pd.to_numeric(
+                df_t.loc[df_t["Affectation"].isin(affectations_autres), "Aire"],
+                errors="coerce").sum())
+        else:
+            total_autres = 0.0
+        total_in_c = total_in - total_autres
+
         mask_data = (
             tbl["Etage"].astype(str) != "TOTAL"
         ) & (
             tbl.get("Occupant", pd.Series([""] * len(tbl))).astype(str) != "— Total étage"
         )
-        total_out = tbl[mask_data][value_cols].apply(
-            pd.to_numeric, errors="coerce"
-        ).sum().sum()
+        total_out = float(tbl[mask_data][value_cols].apply(
+            pd.to_numeric, errors="coerce").sum().sum())
 
-        ecart = float(total_in) - float(total_out)
-        autres_total = ecart  # écart positif = surfaces non classées
+        ecart = total_in_c - total_out
 
-        if ecart < -0.01:
-            # Plus en sortie qu'en entrée — anomalie réelle
+        if total_autres > 0.01 and abs(ecart) <= 0.01:
+            # Tout est classé correctement, juste des "autres" exclus → info
             anomalies.append({
                 "type": t, "niveau": "TOTAL",
-                "entree": round(float(total_in), 2),
-                "sortie": round(float(total_out), 2),
-                "ecart": round(ecart, 2),
-                "msg": (f"{t} | TOTAL : sortie ({total_out:.2f} m2) > entree ({total_in:.2f} m2) "
-                        f"- surface en trop de {abs(ecart):.2f} m2"),
+                "entree": round(total_in, 2),
+                "entree_classee": round(total_in_c, 2),
+                "autres": round(total_autres, 2),
+                "sortie": round(total_out, 2),
+                "ecart": 0.0,
+                "info": True,
+                "msg": (f"{t} | TOTAL : {total_autres:.2f} m2 non classes "
+                        f"exclus du tableau sur {total_in:.2f} m2 total"),
             })
-        elif ecart > 0.01:
-            # Surfaces non classées (autres) — informatif seulement
+        elif abs(ecart) > 0.01:
             anomalies.append({
                 "type": t, "niveau": "TOTAL",
-                "entree": round(float(total_in), 2),
-                "sortie": round(float(total_out), 2),
+                "entree": round(total_in, 2),
+                "entree_classee": round(total_in_c, 2),
+                "autres": round(total_autres, 2),
+                "sortie": round(total_out, 2),
                 "ecart": round(ecart, 2),
-                "info": True,  # pas une vraie erreur
-                "msg": (f"{t} | TOTAL : {ecart:.2f} m2 non classes (\"autres\") "
-                        f"exclus du tableau sur {total_in:.2f} m2 en entree"),
+                "info": False,
+                "msg": (f"{t} | TOTAL : classes={total_in_c:.2f} m2 "
+                        f"sortie={total_out:.2f} m2 "
+                        f"ecart={ecart:+.2f} m2"
+                        + (f" (dont {total_autres:.2f} m2 non classes)" if total_autres > 0 else "")),
             })
 
     return anomalies
