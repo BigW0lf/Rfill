@@ -506,9 +506,49 @@ class SurfaceApp(tk.Tk):
         ttk.Button(btn_frame, text="Sauv. dans glossaire source ↗",
                    command=self.save_glossaire).pack(side="left")
 
-        # ── Board catégories (pleine largeur, "Non classé" intégré en haut) ──
-        canvas_frame = ttk.Frame(frame)
-        canvas_frame.pack(fill="both", expand=True)
+        # ── Split horizontal : panel gauche "Non classé" + board catégories ──
+        split = tk.Frame(frame, bg="#f0f0f0")
+        split.pack(fill="both", expand=True)
+
+        # ── Panel gauche "Non classé" ─────────────────────────────────────────
+        self._autres_outer = tk.Frame(split, width=195, bg="#e0e0e0")
+        self._autres_outer.pack(side="left", fill="y")
+        self._autres_outer.pack_propagate(False)
+
+        autres_hdr = tk.Frame(self._autres_outer, bg="#999999", pady=6)
+        autres_hdr.pack(fill="x")
+        tk.Label(autres_hdr, text="Non classé", font=("Arial", 10, "bold"),
+                 bg="#999999", fg="white").pack(padx=8)
+
+        autres_cf = tk.Frame(self._autres_outer, bg="#e8e8e8")
+        autres_cf.pack(fill="both", expand=True)
+
+        self.autres_canvas = tk.Canvas(autres_cf, bg="#e8e8e8", highlightthickness=0)
+        autres_sb = ttk.Scrollbar(autres_cf, orient="vertical",
+                                   command=self.autres_canvas.yview)
+        self.autres_canvas.config(yscrollcommand=autres_sb.set)
+        autres_sb.pack(side="right", fill="y")
+        self.autres_canvas.pack(fill="both", expand=True)
+
+        self.autres_inner = tk.Frame(self.autres_canvas, bg="#e8e8e8")
+        self._autres_win = self.autres_canvas.create_window(
+            (0, 0), window=self.autres_inner, anchor="nw")
+        self.autres_inner.bind(
+            "<Configure>",
+            lambda e: self.autres_canvas.configure(
+                scrollregion=self.autres_canvas.bbox("all")),
+        )
+        self.autres_canvas.bind(
+            "<Configure>",
+            lambda e: self.autres_canvas.itemconfig(self._autres_win, width=e.width),
+        )
+
+        # Séparateur vertical
+        ttk.Separator(split, orient="vertical").pack(side="left", fill="y", padx=2)
+
+        # ── Board catégories (droite) : scroll H + V libre ────────────────────
+        canvas_frame = ttk.Frame(split)
+        canvas_frame.pack(side="left", fill="both", expand=True)
         canvas_frame.rowconfigure(0, weight=1)
         canvas_frame.columnconfigure(0, weight=1)
 
@@ -527,24 +567,19 @@ class SurfaceApp(tk.Tk):
         self.h_scroll.config(command=self.canvas.xview)
         self.v_scroll.config(command=self.canvas.yview)
 
-        self.board = ttk.Frame(self.canvas)
+        self.board = tk.Frame(self.canvas, bg="#f0f0f0")
         self._board_win = self.canvas.create_window((0, 0), window=self.board, anchor="nw")
         self.board.bind(
             "<Configure>",
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
         )
-        self.canvas.bind("<Configure>", self._on_canvas_resize)
 
-        # Panel "Non classé" fictif pour compatibilité drag-drop (non affiché)
-        self.autres_canvas = self.canvas
-        self.autres_inner  = tk.Frame(self.canvas, bg="#e8e8e8")
-
-        # Molette : tout va vers le canvas principal
+        # Molette : router vers le bon canvas selon position souris
         self.bind_all("<MouseWheel>", self._route_scroll)
 
     def _on_canvas_resize(self, event):
-        """Adapte la largeur du board à la largeur courante du canvas."""
-        self.canvas.itemconfig(self._board_win, width=event.width)
+        """Met à jour la scrollregion quand le canvas est redimensionné."""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _route_scroll(self, event):
         """Route l'événement molette vers le canvas sous le pointeur."""
@@ -558,7 +593,9 @@ class SurfaceApp(tk.Tk):
                 return False
 
         delta = -1 if event.delta < 0 else 1
-        if _over(self.canvas):
+        if _over(self.autres_canvas):
+            self.autres_canvas.yview_scroll(-delta, "units")
+        elif _over(self.canvas):
             self.canvas.yview_scroll(-delta, "units")
 
     def _autoscroll_canvas(self, event, canvas):
@@ -680,37 +717,30 @@ class SurfaceApp(tk.Tk):
         mapping_df = self.mappings[type_su]
         sc_dict    = self.super_cats.get(type_su, {})
 
-        # ── Vider le board ────────────────────────────────────────────────────
+        # ── Vider les deux zones ──────────────────────────────────────────────
         for w in self.board.winfo_children():
+            w.destroy()
+        for w in self.autres_inner.winfo_children():
             w.destroy()
         self.columns = {}
 
-        # ── Section "Non classé" en tête du board ────────────────────────────
+        # ── Panel gauche : affectations "Non classé" ──────────────────────────
         autres_items = sorted(
             mapping_df.loc[mapping_df["cat"] == "autres", "Affectation"].tolist()
         )
-        nc_hdr = tk.Frame(self.board, bg="#999999", pady=5)
-        nc_hdr.pack(fill="x", padx=4, pady=(4, 0))
-        tk.Label(nc_hdr, text="Non classé", font=("Arial", 11, "bold"),
-                 bg="#999999", fg="white").pack(side="left", padx=10)
-
-        nc_body = tk.Frame(self.board, bg="#e8e8e8", pady=6)
-        nc_body.pack(fill="x", padx=4)
-        self.autres_inner = nc_body
-        self.columns["autres"] = nc_body
-
+        self.columns["autres"] = self.autres_inner
         if autres_items:
             for aff in autres_items:
-                self._make_aff_widget(nc_body, aff, "autres")
+                self._make_aff_widget(self.autres_inner, aff, "autres")
         else:
-            tk.Label(nc_body, text="(aucune — toutes les affectations sont classées)",
-                     font=("Arial", 9), fg="#aaaaaa", bg="#e8e8e8").pack(pady=8, padx=12)
+            tk.Label(self.autres_inner, text="(aucune)", font=("Arial", 9),
+                     fg="#aaaaaa", bg="#e8e8e8").pack(pady=12, padx=8)
 
-        # ── Sections catégories ───────────────────────────────────────────────
+        # ── Board catégories (droite) ─────────────────────────────────────────
         for sc_name, sc_cats in sc_dict.items():
             if sc_name:
                 sc_hdr = tk.Frame(self.board, bg=self._SC_HDR_BG, pady=5)
-                sc_hdr.pack(fill="x", padx=4, pady=(10, 0))
+                sc_hdr.pack(anchor="w", fill="x", padx=4, pady=(10, 0))
                 sc_lbl = tk.Label(sc_hdr, text=sc_name, font=("Arial", 11, "bold"),
                                   bg=self._SC_HDR_BG, cursor="hand2")
                 sc_lbl.pack(side="left", padx=10)
@@ -718,7 +748,7 @@ class SurfaceApp(tk.Tk):
                             lambda e, sc=sc_name, t=type_su: self.rename_supercat(sc, t))
 
             sc_body = tk.Frame(self.board, bg=self._SC_BODY_BG, pady=4)
-            sc_body.pack(fill="x", padx=4)
+            sc_body.pack(anchor="w", padx=4)
 
             all_sc_cats = list(sc_cats) + [
                 c for c in self.empty_categories.get(type_su, set())
@@ -874,6 +904,7 @@ class SurfaceApp(tk.Tk):
                 y=event.y_root - self.winfo_rooty() - 20,
             )
             self._autoscroll_canvas(event, self.canvas)
+            self._autoscroll_canvas(event, self.autres_canvas)
 
     def stop_drag(self, event):
         """Dépose l'affectation dans la catégorie cible et met à jour le mapping."""
@@ -883,15 +914,27 @@ class SurfaceApp(tk.Tk):
         x, y        = event.x_root, event.y_root
         target_cat  = None
 
-        for cat, frame in self.columns.items():
-            try:
-                fx, fy = frame.winfo_rootx(), frame.winfo_rooty()
-                fw, fh = frame.winfo_width(),  frame.winfo_height()
-                if fx < x < fx + fw and fy < y < fy + fh:
-                    target_cat = cat
-                    break
-            except Exception:
-                pass
+        # Vérifier d'abord le panel "Non classé" entier (zone de scroll gauche)
+        try:
+            ax, ay = self.autres_canvas.winfo_rootx(), self.autres_canvas.winfo_rooty()
+            aw, ah = self.autres_canvas.winfo_width(), self.autres_canvas.winfo_height()
+            if ax < x < ax + aw and ay < y < ay + ah:
+                target_cat = "autres"
+        except Exception:
+            pass
+
+        if target_cat is None:
+            for cat, frame in self.columns.items():
+                if cat == "autres":
+                    continue
+                try:
+                    fx, fy = frame.winfo_rootx(), frame.winfo_rooty()
+                    fw, fh = frame.winfo_width(),  frame.winfo_height()
+                    if fx < x < fx + fw and fy < y < fy + fh:
+                        target_cat = cat
+                        break
+                except Exception:
+                    pass
 
         self.drag_label.destroy()
         self.drag_label = None
