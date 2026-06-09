@@ -506,49 +506,9 @@ class SurfaceApp(tk.Tk):
         ttk.Button(btn_frame, text="Sauv. dans glossaire source ↗",
                    command=self.save_glossaire).pack(side="left")
 
-        # ── Split horizontal : panel gauche "Non classé" + board catégories ──
-        split = tk.Frame(frame, bg="#f0f0f0")
-        split.pack(fill="both", expand=True)
-
-        # ── Panel gauche ─────────────────────────────────────────────────────
-        self._autres_outer = tk.Frame(split, width=195, bg="#e0e0e0")
-        self._autres_outer.pack(side="left", fill="y")
-        self._autres_outer.pack_propagate(False)
-
-        autres_hdr = tk.Frame(self._autres_outer, bg="#999999", pady=6)
-        autres_hdr.pack(fill="x")
-        tk.Label(autres_hdr, text="Non classé", font=("Arial", 10, "bold"),
-                 bg="#999999", fg="white").pack(padx=8)
-
-        autres_cf = tk.Frame(self._autres_outer, bg="#e8e8e8")
-        autres_cf.pack(fill="both", expand=True)
-
-        self.autres_canvas = tk.Canvas(autres_cf, bg="#e8e8e8", highlightthickness=0)
-        autres_sb = ttk.Scrollbar(autres_cf, orient="vertical",
-                                   command=self.autres_canvas.yview)
-        self.autres_canvas.config(yscrollcommand=autres_sb.set)
-        autres_sb.pack(side="right", fill="y")
-        self.autres_canvas.pack(fill="both", expand=True)
-
-        self.autres_inner = tk.Frame(self.autres_canvas, bg="#e8e8e8")
-        self._autres_win = self.autres_canvas.create_window(
-            (0, 0), window=self.autres_inner, anchor="nw")
-        self.autres_inner.bind(
-            "<Configure>",
-            lambda e: self.autres_canvas.configure(
-                scrollregion=self.autres_canvas.bbox("all")),
-        )
-        self.autres_canvas.bind(
-            "<Configure>",
-            lambda e: self.autres_canvas.itemconfig(self._autres_win, width=e.width),
-        )
-
-        # Séparateur vertical
-        ttk.Separator(split, orient="vertical").pack(side="left", fill="y", padx=2)
-
-        # ── Board catégories (droite) ─────────────────────────────────────────
-        canvas_frame = ttk.Frame(split)
-        canvas_frame.pack(side="left", fill="both", expand=True)
+        # ── Board catégories (pleine largeur, "Non classé" intégré en haut) ──
+        canvas_frame = ttk.Frame(frame)
+        canvas_frame.pack(fill="both", expand=True)
         canvas_frame.rowconfigure(0, weight=1)
         canvas_frame.columnconfigure(0, weight=1)
 
@@ -575,7 +535,11 @@ class SurfaceApp(tk.Tk):
         )
         self.canvas.bind("<Configure>", self._on_canvas_resize)
 
-        # Molette : router vers le bon canvas selon position souris
+        # Panel "Non classé" fictif pour compatibilité drag-drop (non affiché)
+        self.autres_canvas = self.canvas
+        self.autres_inner  = tk.Frame(self.canvas, bg="#e8e8e8")
+
+        # Molette : tout va vers le canvas principal
         self.bind_all("<MouseWheel>", self._route_scroll)
 
     def _on_canvas_resize(self, event):
@@ -594,9 +558,7 @@ class SurfaceApp(tk.Tk):
                 return False
 
         delta = -1 if event.delta < 0 else 1
-        if _over(self.autres_canvas):
-            self.autres_canvas.yview_scroll(-delta, "units")
-        elif _over(self.canvas):
+        if _over(self.canvas):
             self.canvas.yview_scroll(-delta, "units")
 
     def _autoscroll_canvas(self, event, canvas):
@@ -718,28 +680,33 @@ class SurfaceApp(tk.Tk):
         mapping_df = self.mappings[type_su]
         sc_dict    = self.super_cats.get(type_su, {})
 
-        # ── Vider les deux zones ──────────────────────────────────────────────
+        # ── Vider le board ────────────────────────────────────────────────────
         for w in self.board.winfo_children():
-            w.destroy()
-        for w in self.autres_inner.winfo_children():
             w.destroy()
         self.columns = {}
 
-        # ── Panel gauche : affectations "Non classé" ──────────────────────────
+        # ── Section "Non classé" en tête du board ────────────────────────────
         autres_items = sorted(
             mapping_df.loc[mapping_df["cat"] == "autres", "Affectation"].tolist()
         )
-        if autres_items:
-            # La colonne "autres" est la zone entière autres_inner
-            self.columns["autres"] = self.autres_inner
-            for aff in autres_items:
-                self._make_aff_widget(self.autres_inner, aff, "autres")
-        else:
-            tk.Label(self.autres_inner, text="(aucune)", font=("Arial", 9),
-                     fg="#aaaaaa", bg="#e8e8e8").pack(pady=12, padx=8)
-            self.columns["autres"] = self.autres_inner
+        nc_hdr = tk.Frame(self.board, bg="#999999", pady=5)
+        nc_hdr.pack(fill="x", padx=4, pady=(4, 0))
+        tk.Label(nc_hdr, text="Non classé", font=("Arial", 11, "bold"),
+                 bg="#999999", fg="white").pack(side="left", padx=10)
 
-        # ── Board catégories (droite) ─────────────────────────────────────────
+        nc_body = tk.Frame(self.board, bg="#e8e8e8", pady=6)
+        nc_body.pack(fill="x", padx=4)
+        self.autres_inner = nc_body
+        self.columns["autres"] = nc_body
+
+        if autres_items:
+            for aff in autres_items:
+                self._make_aff_widget(nc_body, aff, "autres")
+        else:
+            tk.Label(nc_body, text="(aucune — toutes les affectations sont classées)",
+                     font=("Arial", 9), fg="#aaaaaa", bg="#e8e8e8").pack(pady=8, padx=12)
+
+        # ── Sections catégories ───────────────────────────────────────────────
         for sc_name, sc_cats in sc_dict.items():
             if sc_name:
                 sc_hdr = tk.Frame(self.board, bg=self._SC_HDR_BG, pady=5)
@@ -787,7 +754,7 @@ class SurfaceApp(tk.Tk):
                 hdr.pack(fill="x", pady=(0, 6))
 
                 lbl = tk.Label(hdr, text=cat, font=("Arial", 10, "bold"),
-                               bg=color, wraplength=120, justify="center", cursor="fleur")
+                               bg=color, justify="center", cursor="fleur")
                 lbl.pack(side="left", fill="x", expand=True)
                 lbl.bind("<Double-Button-1>", lambda e, c=cat: self.rename_category(c))
                 lbl.bind("<Button-3>",
@@ -907,7 +874,6 @@ class SurfaceApp(tk.Tk):
                 y=event.y_root - self.winfo_rooty() - 20,
             )
             self._autoscroll_canvas(event, self.canvas)
-            self._autoscroll_canvas(event, self.autres_canvas)
 
     def stop_drag(self, event):
         """Dépose l'affectation dans la catégorie cible et met à jour le mapping."""
@@ -917,24 +883,15 @@ class SurfaceApp(tk.Tk):
         x, y        = event.x_root, event.y_root
         target_cat  = None
 
-        # Vérifier d'abord le panel "Non classé" entier
-        try:
-            ax, ay = self.autres_canvas.winfo_rootx(), self.autres_canvas.winfo_rooty()
-            aw, ah = self.autres_canvas.winfo_width(), self.autres_canvas.winfo_height()
-            if ax < x < ax + aw and ay < y < ay + ah:
-                target_cat = "autres"
-        except Exception:
-            pass
-
-        if target_cat is None:
-            for cat, frame in self.columns.items():
-                if cat == "autres":
-                    continue
+        for cat, frame in self.columns.items():
+            try:
                 fx, fy = frame.winfo_rootx(), frame.winfo_rooty()
                 fw, fh = frame.winfo_width(),  frame.winfo_height()
                 if fx < x < fx + fw and fy < y < fy + fh:
                     target_cat = cat
                     break
+            except Exception:
+                pass
 
         self.drag_label.destroy()
         self.drag_label = None
