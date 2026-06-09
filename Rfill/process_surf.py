@@ -1152,7 +1152,10 @@ def update_glossary(mapping_df, type_su, super_cats_for_type=None):
         + "\n\npredefined_cats = "
         + pprint.pformat(glossary_surf.predefined_cats, width=120, sort_dicts=False)
         + "\n\ncat_colors = "
-        + pprint.pformat(glossary_surf.cat_colors, width=120, sort_dicts=False)
+        + pprint.pformat(
+            getattr(glossary_surf, "cat_colors",
+                    getattr(glossary_surf, "cat_colors_sub", {})),
+            width=120, sort_dicts=False)
         + "\n\nnota_surf = "
         + pprint.pformat(glossary_surf.nota_surf, width=120, sort_dicts=False)
         + "\n"

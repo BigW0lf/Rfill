@@ -1264,22 +1264,40 @@ class SurfaceApp(tk.Tk):
             vraies_erreurs = [a for a in resultats if not a.get("info")]
             infos_autres   = [a for a in resultats if a.get("info")]
 
+            def _fmt_verif(a):
+                t       = a["type"]
+                niv     = a["niveau"]
+                entree  = a["entree"]
+                exclus  = a["autres"]
+                classe  = a["entree_classee"]
+                sortie  = a["sortie"]
+                ecart   = a["ecart"]
+                parts = [f"{t} | {niv}"]
+                parts.append(f"entrée {entree:.2f} m²")
+                if exclus > 0.005:
+                    parts.append(f"dont non classés {exclus:.2f} m²")
+                parts.append(f"classés {classe:.2f} m²")
+                parts.append(f"sortie {sortie:.2f} m²")
+                if not a.get("info"):
+                    parts.append(f"écart {ecart:+.2f} m²")
+                return "  ·  ".join(parts)
+
             for a in infos_autres:
-                self._log(self.text_generer, f"[INFO] {a['msg']}", "info")
+                self._log(self.text_generer, f"[INFO] {_fmt_verif(a)}", "info")
             for a in vraies_erreurs:
-                self._log(self.text_generer, f"[WARN] {a['msg']}", "warn")
+                self._log(self.text_generer, f"[WARN] {_fmt_verif(a)}", "warn")
 
             if vraies_erreurs:
                 self._log(self.text_generer,
                           f"[WARN] {len(vraies_erreurs)} incohérence(s) détectée(s) "
-                          "— surfaces en sortie > entrée, vérifiez vos fichiers.", "warn")
+                          "— vérifiez les étages concernés ci-dessus.", "warn")
             elif infos_autres:
                 self._log(self.text_generer,
                           f"[OK]   Totaux cohérents — {len(infos_autres)} type(s) avec "
-                          "surfaces non classées exclus du tableau.", "ok")
+                          "surfaces non classées exclues du tableau.", "ok")
             else:
                 self._log(self.text_generer,
-                          "[OK]   Verification OK — tous les totaux sont coherents.", "ok")
+                          "[OK]   Vérification OK — tous les totaux sont cohérents.", "ok")
 
             anomalies = vraies_erreurs
         except Exception as e:
