@@ -16,9 +16,9 @@ from process_surf import (
 SVFILL_VERSION = 1
 APP_NAME    = "Rfill"
 APP_TITLE   = "Rfill — Analyse des Surfaces"
-APP_VERSION = "1.3.0"
-APP_BUILD   = "2026.06.01"
-APP_DATE    = "1 juin 2026"
+APP_VERSION = "1.4.0"
+APP_BUILD   = "2026.06.09"
+APP_DATE    = "9 juin 2026"
 APP_AUTHOR  = "J. FAGUET"
 APP_COMPANY = "RTaxes"
 APP_DESC    = (
@@ -239,6 +239,9 @@ class SurfaceApp(tk.Tk):
         self._apply_session_data(data)
         self._session_path = path
         self._update_session_label()
+        import os as _os
+        self._log(self.text_import,
+                  f"[SESSION] Chargée : {_os.path.basename(path)}", "ok")
 
     def session_save(self):
         """Enregistre la session courante dans le fichier .svfill actif (ou demande le chemin)."""
@@ -764,9 +767,8 @@ class SurfaceApp(tk.Tk):
             for cat in all_sc_cats:
                 colors = self.cat_colors.setdefault(type_su, {})
                 if cat not in colors:
-                    from glossary_surf import cat_colors_sub as _cc_sub
-                    _predef_colors = {"SUB": _cc_sub}
-                    predef = _predef_colors.get(type_su, {})
+                    from glossary_surf import cat_colors as _cat_colors
+                    predef = _cat_colors.get(type_su, {})
                     if cat in predef:
                         color = predef[cat]
                     else:
@@ -1418,8 +1420,8 @@ class SurfaceApp(tk.Tk):
         tk.Label(inner, text="Guide d'utilisation — Rfill",
                  font=("Arial", 18, "bold"), bg=BG, fg=DARK).pack(anchor="w", padx=PX)
         tk.Label(inner,
-                 text="Rfill permet d'importer des fichiers de surfaces AutoCAD ou GeoGex, "
-                      "de catégoriser les affectations, puis de générer des tableaux Excel normés "
+                 text=f"Version {APP_VERSION}  ·  Rfill permet d'importer des fichiers de surfaces AutoCAD ou GeoGex, "
+                      "de catégoriser les affectations par glisser-déposer, puis de générer des tableaux Excel normés "
                       "et un rapport HTML imprimable au format A4 paysage.",
                  font=("Arial", 10, "italic"), bg=BG, fg="#555",
                  anchor="w", justify="left", wraplength=860).pack(anchor="w", padx=PX, pady=(4, 0))
@@ -1466,7 +1468,7 @@ class SurfaceApp(tk.Tk):
              "est rattachée à une catégorie de surface, et comment ces catégories sont "
              "regroupées en colonnes dans le tableau final.")
         para("\nSélectionnez le type de surface à éditer dans la liste déroulante (SUB, SU, SHO…). "
-             "Chaque type a son propre classement indépendant.")
+             "Chaque type a son propre classement indépendant, avec sa propre palette de couleurs.")
         bullet([
             "Colonne « Non classé » (gauche) : affectations non reconnues par le glossaire. "
             "Faites-les glisser vers la bonne catégorie.",
@@ -1505,14 +1507,20 @@ class SurfaceApp(tk.Tk):
                 "Crée deux fichiers côte à côte : un classeur .xlsx (un onglet par type de surface) "
                 "et un rapport .html imprimable A4 paysage avec logos et tampon intégrés. "
                 "Les étages sont affichés avec leurs libellés complets "
-                "(Rez-de-chaussée, 1er Étage, 1er Sous-sol…).")
+                "(Rez-de-chaussée, 1er Étage, 1er Sous-sol…). "
+                "Une vérification automatique de cohérence entrée/sortie est effectuée après chaque "
+                "génération — les anomalies apparaissent en orange dans le journal. La SDP, dont la "
+                "structure est soustractive, est exclue de cette vérification.")
         btn_doc("HTML depuis Excel…",
                 "Relit un fichier .xlsx déjà généré par Rfill et régénère uniquement le rapport HTML, "
                 "en utilisant les informations saisies dans le formulaire ci-dessus.")
         btn_doc("☑ Ouvrir après enregistrement",
                 "Si coché, ouvre automatiquement le fichier Excel dans votre application par défaut "
                 "dès que la génération est terminée.")
-        para("\nLe journal de génération affiche l'avancement et les éventuelles erreurs.")
+        para("\nLe journal de génération affiche l'avancement et les éventuelles erreurs. "
+             "Un message [INFO] indique les surfaces non classées (catégorie « autres ») exclues "
+             "du tableau ; un message [WARN] signale une incohérence réelle entre les fichiers "
+             "sources et le tableau généré.")
 
         # ── Codes de surface ──────────────────────────────────────────────────
         titre("Codes de surface reconnus")
@@ -1547,6 +1555,20 @@ class SurfaceApp(tk.Tk):
             "automatiquement réappliquées.",
             "Le champ Étage dans vos fichiers d'étiquettes doit être un nombre "
             "(pas de texte comme « RdC » ou « SS »). Rfill se charge de la conversion en libellé.",
+            "Si le journal de génération affiche [WARN] sur la vérification, comparez les totaux "
+            "par étage dans votre fichier AutoCAD/GeoGex avec ceux du tableau Excel généré.",
+        ])
+
+        # ── Nouveautés v1.4.0 ─────────────────────────────────────────────────
+        titre("Nouveautés de la version 1.4.0")
+        bullet([
+            "Palette de couleurs des catégories étendue à tous les types de surface "
+            "(SUB, SU, SUBL, SUN, SHO, GLA, TAX, TSB) — chaque type a ses couleurs prédéfinies.",
+            "Vérification de cohérence entrée/sortie : la SDP est désormais exclue "
+            "(sa structure soustractive rendait la comparaison non pertinente).",
+            "Correction d'un bug dans la vérification : les lignes de sous-total d'étage "
+            "étaient comptées en double sur les projets sans occupants, générant de fausses alertes.",
+            "Batterie de 55 tests automatisés couvrant l'ensemble de la chaîne de traitement.",
         ])
 
         tk.Frame(inner, height=40, bg=BG).pack()

@@ -518,57 +518,70 @@ def Tab_output(df_tcd, infos, super_cat_map=None):
         # Sous-totaux par sur-catégorie
         sc_map = (super_cat_map or {}).get(t, {})
         sc_spans = {}  # {sc_name: (col_start_idx, col_end_idx)} dans le df final
+
+        # Pour SUB : "Terrasses /\nBalcons" est hors sous-total, placée après [Superficies annexes]
+        _SUB_STANDALONE = "Terrasses /\nBalcons"
+        standalone_cols = []
+        if t == "SUB" and _SUB_STANDALONE in cat_cols:
+            standalone_cols = [_SUB_STANDALONE]
+
         if sc_map:
             ordered = list(index_cols)
             for sc_name, sc_cats in sc_map.items():
-                sc_actual = [c for c in sc_cats if c in cat_cols]
+                # Exclure les colonnes standalone du sous-total
+                sc_actual = [c for c in sc_cats if c in cat_cols and c not in standalone_cols]
+                sc_alone  = [c for c in standalone_cols if c in sc_cats and c in cat_cols]
                 if sc_actual:
                     ordered.extend(sc_actual)
                     sub_col = f"[{sc_name}]"
                     table[sub_col] = table[sc_actual].sum(axis=1)
                     ordered.append(sub_col)
-            remaining = [c for c in cat_cols if c not in ordered]
+                # Colonnes standalone après le sous-total (ou seules si pas de sc_actual)
+                ordered.extend(sc_alone)
+            remaining = [c for c in cat_cols if c not in ordered and c not in standalone_cols]
             ordered.extend(remaining)
             ordered.append("Total")
             table = table[[c for c in ordered if c in table.columns]]
             # Calculer les spans de colonnes pour l'export Excel
             final_cols = list(table.columns)
             for sc_name, sc_cats in sc_map.items():
-                sc_actual = [c for c in sc_cats if c in cat_cols]
+                sc_actual = [c for c in sc_cats if c in cat_cols and c not in standalone_cols]
+                sc_standalone = [c for c in sc_cats if c in standalone_cols and c in cat_cols]
                 if sc_actual:
                     sub_col = f"[{sc_name}]"
+                    end_col = sc_standalone[0] if sc_standalone else sub_col
                     sc_spans[sc_name] = (final_cols.index(sc_actual[0]),
-                                         final_cols.index(sub_col))
+                                         final_cols.index(end_col))
 
         all_value_cols = [c for c in table.columns if c not in index_cols]
 
-        # Sous-totaux par étage (seulement quand plusieurs occupants)
-        if has_occupant:
-            etages = list(dict.fromkeys(table["Etage"]))
-            chunks = []
-            for etage in etages:
-                chunk = table[table["Etage"] == etage].copy()
-                chunks.append(chunk)
-                sub = {c: "" for c in table.columns}
-                sub["Etage"] = str(etage)
+        # Sous-totaux par étage — toujours générés
+        etages = list(dict.fromkeys(table["Etage"]))
+        chunks = []
+        for etage in etages:
+            chunk = table[table["Etage"] == etage].copy()
+            chunks.append(chunk)
+            sub = {c: "" for c in table.columns}
+            sub["Etage"] = f"_sub_{etage}"  # marqueur interne avec le nom d'étage
+            if has_occupant:
                 sub["Occupant"] = "— Total étage"
-                for c in all_value_cols:
-                    sub[c] = pd.to_numeric(chunk[c], errors="coerce").sum()
-                chunks.append(pd.DataFrame([sub]))
-            table = pd.concat(chunks, ignore_index=True)
+            for c in all_value_cols:
+                sub[c] = pd.to_numeric(chunk[c], errors="coerce").sum()
+            chunks.append(pd.DataFrame([sub]))
+        table = pd.concat(chunks, ignore_index=True)
 
         total_row = {c: "" for c in table.columns}
         total_row["Etage"] = "TOTAL"
+        not_subtotal = ~table["Etage"].astype(str).str.startswith("_sub_")
         for c in all_value_cols:
-            total_row[c] = pd.to_numeric(
-                table.loc[table.get("Occupant", pd.Series([""] * len(table))) != "— Total étage", c],
-                errors="coerce"
-            ).sum()
+            total_row[c] = pd.to_numeric(table.loc[not_subtotal, c], errors="coerce").sum()
         table = pd.concat([table, pd.DataFrame([total_row])], ignore_index=True)
 
         # Convertir les valeurs d'étage en libellés français
         table["Etage"] = table["Etage"].apply(
-            lambda v: v if str(v) in ("TOTAL", "— Total étage") else _etage_label(v)
+            lambda v: v if str(v) == "TOTAL" else (
+                _etage_label(str(v)[5:]) + " — Total étage" if str(v).startswith("_sub_") else _etage_label(v)
+            )
         )
 
         nota = glossary_surf.nota_surf.get(t, [])
@@ -616,32 +629,8 @@ def verify_totals(df_types, output_tables, mappings=None):
         else:
             affectations_autres = set()  # inconnu — on utilisera la différence
 
-        # ── SDP : vérification globale (Planchers avant déductions) ──────────
+        # SDP a part : sa structure soustractive la rend non comparable entrée/sortie
         if output_tables[t].get("sdp_fixed"):
-            df_t_classee = df_t[~df_t["Affectation"].isin(affectations_autres)] \
-                           if affectations_autres else df_t
-            total_in_c = pd.to_numeric(df_t_classee["Aire"], errors="coerce").sum()
-            total_in   = pd.to_numeric(df_t["Aire"],         errors="coerce").sum()
-            tbl = output_tables[t]["data"]
-            total_row = tbl[tbl["Etage"].astype(str) == "TOTAL"]
-            if not total_row.empty and "Planchers avant déductions" in tbl.columns:
-                total_out = float(pd.to_numeric(
-                    total_row["Planchers avant déductions"].iloc[0], errors="coerce") or 0)
-                ecart = total_in_c - total_out
-                autres = float(total_in) - float(total_in_c)
-                if abs(ecart) > 0.01:
-                    anomalies.append({
-                        "type": t, "niveau": "TOTAL",
-                        "entree": round(float(total_in), 2),
-                        "entree_classee": round(float(total_in_c), 2),
-                        "autres": round(autres, 2),
-                        "sortie": round(total_out, 2),
-                        "ecart": round(ecart, 2),
-                        "info": False,
-                        "msg": (f"{t} | TOTAL : classes={total_in_c:.2f} m2 "
-                                f"sortie={total_out:.2f} m2 "
-                                f"ecart={ecart:+.2f} m2"),
-                    })
             continue
 
         tbl = output_tables[t]["data"]
@@ -703,6 +692,8 @@ def verify_totals(df_types, output_tables, mappings=None):
 
         mask_data = (
             tbl["Etage"].astype(str) != "TOTAL"
+        ) & (
+            ~tbl["Etage"].astype(str).str.endswith("— Total étage")
         ) & (
             tbl.get("Occupant", pd.Series([""] * len(tbl))).astype(str) != "— Total étage"
         )
@@ -1160,8 +1151,8 @@ def update_glossary(mapping_df, type_su, super_cats_for_type=None):
         + pprint.pformat(glossary_surf.superficie_names, width=120, sort_dicts=False)
         + "\n\npredefined_cats = "
         + pprint.pformat(glossary_surf.predefined_cats, width=120, sort_dicts=False)
-        + "\n\ncat_colors_sub = "
-        + pprint.pformat(glossary_surf.cat_colors_sub, width=120, sort_dicts=False)
+        + "\n\ncat_colors = "
+        + pprint.pformat(glossary_surf.cat_colors, width=120, sort_dicts=False)
         + "\n\nnota_surf = "
         + pprint.pformat(glossary_surf.nota_surf, width=120, sort_dicts=False)
         + "\n"
@@ -1289,8 +1280,9 @@ body { font-family: Arial, sans-serif; font-size: 10px; color: #222; margin: 0; 
 .page:last-child { page-break-after: auto; }
 header { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: center;
          border-bottom: 2px solid #1a2a4a; padding-bottom: 6px; margin-bottom: 10px; gap: 8px; }
-header .logos { display: flex; align-items: center; gap: 10px; }
-header .logos img { max-height: 70px; max-width: 180px; object-fit: contain; }
+header .logos { display: flex; align-items: center; gap: 8px; }
+header .logos img { max-height: 70px; max-width: 120px; object-fit: contain; }
+header .logos .cabinet-info { font-size: 8px; line-height: 1.6; color: #333; }
 header .infos { text-align: center; font-size: 9px; line-height: 1.35; }
 header .infos .title { font-size: 12px; font-weight: bold; color: #1a2a4a;
                        text-transform: uppercase; margin-bottom: 3px; }
@@ -1304,15 +1296,19 @@ table.surf { width: 100%; border-collapse: collapse; font-size: 9px;
              table-layout: fixed; }
 table.surf th, table.surf td { border: 1px solid #888; padding: 3px 4px;
                                 text-align: center; vertical-align: middle;
-                                word-wrap: break-word; overflow-wrap: break-word; }
-table.surf th { background: #DDEEFF; font-weight: bold; }
-table.surf th.sc { background: #B0C4DE; }
-table.surf th.sub { background: #E8F0E8; }
-table.surf th span.colnum { display: block; font-size: 8px; color: #555; font-weight: normal; margin-bottom: 2px; }
+                                overflow-wrap: break-word; word-break: normal;
+                                print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+table.surf th { background: #B0ACC4; color: #111; font-weight: bold; }
+table.surf th.sc { background: #B0ACC4; }
+table.surf th.sub, table.surf th.sdp-total { background: #FF979C; }
+table.surf th span.colnum { display: block; font-size: 8px; color: #333; font-weight: normal; margin-bottom: 2px; }
 table.surf td.idx { text-align: left; }
+table.surf td.etage-cell { background: #B0ACC4; font-weight: bold; }
+table.surf td.num { text-align: center; }
+table.surf td.subtotal, table.surf td.sdp-total { background: #FF979C !important; font-weight: bold; text-align: center; }
 table.surf tr.total-etage td { background: #FF979C; font-weight: bold; text-align: left; }
 table.surf tr.total-etage td.num { text-align: center; }
-table.surf tr.total td { background: #B8CCE4; font-weight: bold; text-align: left; }
+table.surf tr.total td { background: #FF979C; font-weight: bold; text-align: left; }
 table.surf tr.total td.num { text-align: center; }
 .footer { display: flex; align-items: flex-start; gap: 12px; margin-top: 6px; }
 .footer .notas { flex: 1; min-width: 0; }
@@ -1320,9 +1316,10 @@ table.surf tr.total td.num { text-align: center; }
               line-height: 1.5; border-left: 2px solid #b0c4de; padding-left: 6px; }
 .nota { margin-top: 4px; font-size: 8px; color: #555; line-height: 1.4; }
 .nota p { margin: 2px 0; }
-.stamp { flex: 0 0 auto; display: flex; align-items: flex-start;
-         justify-content: center; padding-left: 8px; }
-.stamp img { max-height: 95px; max-width: 180px; object-fit: contain; }
+.stamp { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+         justify-content: flex-start; gap: 4px; padding-left: 8px; }
+.stamp img.tampon { max-height: 70px; max-width: 160px; object-fit: contain; }
+.stamp img.oge { max-height: 70px; max-width: 160px; object-fit: contain; }
 /* Onglets (écran uniquement, masqués à l'impression) */
 @media screen {
   body { background: #eef2f7; padding: 10px 0; }
@@ -1347,12 +1344,19 @@ table.surf tr.total td.num { text-align: center; }
 @media print { .tabs { display: none !important; } }
 """
 
+    _CABINET_INFO = (
+        "66-68 rue du Bocage<br>"
+        "37540 SAINT-CYR-SUR-LOIRE<br>"
+        "&#9990;&nbsp;02 47 42 14 98<br>"
+        "&#9993;&nbsp;benoit.decorbier@geometre-expert.fr"
+    )
+
     def render_header(sheet_title):
-        logos_html = ""
-        if logo_ge:
-            logos_html += f'<img src="{logo_ge}" alt="">'
+        # Gauche : logo cabinet + infos cabinet
+        cabinet_html = ""
         if logo_rtaxes:
-            logos_html += f'<img src="{logo_rtaxes}" alt="">'
+            cabinet_html += f'<img src="{logo_rtaxes}" alt="">'
+        cabinet_html += f'<div class="cabinet-info">{_CABINET_INFO}</div>'
 
         # Ligne 1 : Bâtiment / Adresse
         bat_adr_parts = []
@@ -1374,13 +1378,6 @@ table.surf tr.total td.num { text-align: center; }
             f"<div>{line}</div>" for line in [bat_adr_html, prop_cad_html] if line
         )
 
-        # Droite : tampon GE + date/dossier + logo OGE
-        stamp_right = ""
-        if tampon:
-            stamp_right += f'<img class="tampon" src="{tampon}" alt="">'
-        if logo_ge:
-            stamp_right += f'<img class="oge" src="{logo_ge}" alt="">'
-
         meta_date_dossier = "".join([
             f'<div class="row"><span class="k">Date :</span>{date_v}</div>' if date_v else "",
             f'<div class="row"><span class="k">Dossier :</span>{dossier}</div>' if dossier else "",
@@ -1388,31 +1385,41 @@ table.surf tr.total td.num { text-align: center; }
 
         return f"""
 <header>
-  <div class="logos">{logos_html}</div>
+  <div class="logos">{cabinet_html}</div>
   <div class="infos">
     <div class="title">{esc(sheet_title)}</div>
     {infos_lines}
     <div style="font-size:9px;margin-top:3px">{meta_date_dossier}</div>
   </div>
-  <div class="stamp-block">{stamp_right}</div>
+  <div class="stamp-block"></div>
 </header>
 """
 
-    def render_table(df, sc_spans, col_numbers=None):
+    def render_table(df, sc_spans, col_numbers=None, sdp_fixed=False):
         cols = list(df.columns)
         index_cols = [c for c in ("Etage", "Occupant") if c in cols]
         value_cols = [c for c in cols if c not in index_cols]
         n_cols = len(cols)
+        has_occupant = "Occupant" in index_cols
 
-        # Largeur colonnes : index étroites, reste équitablement réparti
+        # Colonne "Total" SDP = dernière colonne → rose
+        sdp_total_col = "Total" if sdp_fixed else None
+
+        # Largeur colonne Etage : basée sur la valeur la plus longue du tableau
+        etage_vals = [str(r) for r in df.get("Etage", pd.Series([])) if str(r) not in ("TOTAL",)]
+        max_etage_len = max((len(v) for v in etage_vals), default=10)
+        etage_width = f"{max(55, min(max_etage_len * 6, 110))}px"
+
         col_widths = []
         for c in cols:
             if c == "Etage":
-                col_widths.append("6%")
+                col_widths.append(etage_width)
             elif c == "Occupant":
-                col_widths.append("14%")
-            elif c == "Total":
-                col_widths.append("8%")
+                col_widths.append("90px")
+            elif c in ("Total", "Total TA"):
+                col_widths.append("52px")
+            elif str(c).startswith("[") and str(c).endswith("]"):
+                col_widths.append("52px")
             else:
                 col_widths.append("auto")
         colgroup = "<colgroup>" + "".join(f'<col style="width:{w}">' for w in col_widths) + "</colgroup>"
@@ -1420,8 +1427,7 @@ table.surf tr.total td.num { text-align: center; }
         # Ligne sur-catégories si présentes
         sc_row = ""
         if sc_spans:
-            # Pour chaque colonne, déterminer si elle est couverte par un span
-            covered = {}  # idx → (sc_name, span_length) pour la première col du span
+            covered = {}
             occupied = set()
             for sc_name, (c_start, c_end) in sc_spans.items():
                 covered[c_start] = (sc_name, c_end - c_start + 1)
@@ -1435,58 +1441,73 @@ table.surf tr.total td.num { text-align: center; }
                     cells.append(f'<th class="sc" colspan="{span}">{esc(name)}</th>')
                     i += span
                 elif i in occupied:
-                    i += 1  # déjà couvert
+                    i += 1
+                elif cols[i] in index_cols:
+                    # Etage / Occupant : rowspan=2 pour fusionner avec la ligne sc
+                    cells.append(f'<th class="sc" rowspan="2">{esc(str(cols[i]))}</th>')
+                    i += 1
                 else:
                     cells.append('<th class="sc"></th>')
                     i += 1
             sc_row = "<tr>" + "".join(cells) + "</tr>"
 
-        # Ligne en-tête colonnes (numéro de référence intégré si présent)
+        # Ligne en-tête colonnes (on saute les index_cols déjà fusionnées dans sc_row)
         hdr_cells = []
         for c in cols:
+            if sc_row and c in index_cols:
+                continue  # déjà émis avec rowspan=2 dans sc_row
             cs  = str(c)
             num = col_numbers.get(c, "") if col_numbers else ""
+            is_sdp_tot = (c == sdp_total_col)
+            extra_cls = " sdp-total" if is_sdp_tot else ""
             if cs.startswith("[") and cs.endswith("]"):
-                hdr_cells.append(f'<th class="sub">Sous-total</th>')
+                hdr_cells.append(f'<th class="sub{extra_cls}">Sous-total</th>')
             elif num:
-                hdr_cells.append(f'<th><span class="colnum">{esc(num)}</span><br>{esc(cs)}</th>')
+                hdr_cells.append(f'<th class="{extra_cls.strip()}"><span class="colnum">{esc(num)}</span><br>{esc(cs)}</th>')
             else:
-                hdr_cells.append(f"<th>{esc(cs)}</th>")
+                hdr_cells.append(f'<th class="{extra_cls.strip()}">{esc(cs)}</th>')
         hdr_row = "<tr>" + "".join(hdr_cells) + "</tr>"
 
         # Lignes de données
         body_rows = []
         for _, row in df.iterrows():
-            occupant_val = str(row.get("Occupant", "")) if "Occupant" in cols else ""
-            etage_val    = str(row.get("Etage", ""))
-            is_total_etage = occupant_val == "— Total étage"
-            is_grand      = etage_val == "TOTAL"
+            occupant_val   = str(row.get("Occupant", "")) if has_occupant else ""
+            etage_val      = str(row.get("Etage", ""))
+            is_total_etage = (occupant_val == "— Total étage") or etage_val.endswith("— Total étage")
+            is_grand       = etage_val == "TOTAL"
 
             if is_grand:
-                label = "TOTAL"
                 tds = []
-                if "Occupant" in index_cols:
-                    tds.append(f'<td colspan="{len(index_cols)}">{label}</td>')
+                if has_occupant:
+                    tds.append(f'<td colspan="{len(index_cols)}" class="idx">TOTAL</td>')
                 else:
-                    tds.append(f"<td>{label}</td>")
+                    tds.append('<td class="idx">TOTAL</td>')
                 for c in value_cols:
-                    tds.append(f'<td class="num">{_fmt_num(row[c])}</td>')
+                    extra = " sdp-total" if c == sdp_total_col else ""
+                    tds.append(f'<td class="num{extra}">{_fmt_num(row[c])}</td>')
                 body_rows.append(f'<tr class="total">{"".join(tds)}</tr>')
                 continue
 
             if is_total_etage:
-                label = f"{esc(etage_val)} — Total étage"
-                tds = [f'<td colspan="{len(index_cols)}">{label}</td>']
+                label_te = occupant_val if has_occupant else etage_val
+                tds = [f'<td colspan="{len(index_cols)}" class="idx">{esc(label_te)}</td>']
                 for c in value_cols:
-                    tds.append(f'<td class="num">{_fmt_num(row[c])}</td>')
+                    extra = " sdp-total" if c == sdp_total_col else ""
+                    tds.append(f'<td class="num{extra}">{_fmt_num(row[c])}</td>')
                 body_rows.append(f'<tr class="total-etage">{"".join(tds)}</tr>')
                 continue
 
             tds = []
-            for c in index_cols:
-                tds.append(f'<td class="idx">{esc(str(row[c]))}</td>')
+            if has_occupant:
+                tds.append(f'<td class="idx etage-cell">{esc(etage_val)}</td>')
+                tds.append(f'<td class="idx">{esc(occupant_val)}</td>')
+            else:
+                tds.append(f'<td class="idx etage-cell">{esc(etage_val)}</td>')
+
             for c in value_cols:
-                tds.append(f'<td class="num">{_fmt_num(row[c])}</td>')
+                is_sub = str(c).startswith("[") and str(c).endswith("]")
+                extra = " sdp-total" if c == sdp_total_col else (" subtotal" if is_sub else "")
+                tds.append(f'<td class="num{extra}">{_fmt_num(row[c])}</td>')
             body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
         return (
@@ -1503,7 +1524,12 @@ table.surf tr.total td.num { text-align: center; }
         "le jour du mesurage."
     )
 
-    stamp_html = f'<div class="stamp"><img src="{tampon}" alt=""></div>' if tampon else ""
+    stamp_parts = ""
+    if tampon:
+        stamp_parts += f'<img class="tampon" src="{tampon}" alt="">'
+    if logo_ge:
+        stamp_parts += f'<img class="oge" src="{logo_ge}" alt="">'
+    stamp_html = f'<div class="stamp">{stamp_parts}</div>' if stamp_parts else ""
 
     pages = []
     tabs = []
@@ -1538,7 +1564,7 @@ table.surf tr.total td.num { text-align: center; }
         page_html = (
             f'<section class="page{active}" id="{page_id}">'
             + render_header(sheet_title)
-            + render_table(df, sc_spans, col_numbers)
+            + render_table(df, sc_spans, col_numbers, sdp_fixed=content.get("sdp_fixed", False))
             + footer_html
             + "</section>"
         )
